@@ -1,0 +1,42 @@
+name: hydro_mate
+description: A hydroponic garden management app for hobbyists and professionals.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & Design
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+
+  # State Management
+  provider: ^6.1.1
+
+  # Local Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  path_provider: ^2.1.1
+
+  # Charts
+  fl_chart: ^0.65.0
+
+  # Utilities
+  intl: ^0.18.1
+  uuid: ^4.2.1
+  shared_preferences: ^2.2.2
+
+  # Image handling
+  image_picker: ^1.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
