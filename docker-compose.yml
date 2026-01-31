@@ -2,7 +2,7 @@ services:
   hydromate:
     build: .
     ports:
-      - "8080:3000"
+      - "8777:3000"
     volumes:
       - hydromate-data:/app/data
     restart: unless-stopped
