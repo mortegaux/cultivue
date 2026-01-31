@@ -10,6 +10,26 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS gardens (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -64,11 +84,30 @@ db.exec(`
     FOREIGN KEY (garden_id) REFERENCES gardens(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    details TEXT,
+    ip_address TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
   CREATE INDEX IF NOT EXISTS idx_log_entries_garden ON log_entries(garden_id);
   CREATE INDEX IF NOT EXISTS idx_log_entries_timestamp ON log_entries(timestamp);
   CREATE INDEX IF NOT EXISTS idx_tasks_garden ON tasks(garden_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
   CREATE INDEX IF NOT EXISTS idx_plants_garden ON plants(garden_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
 `);
 
 module.exports = db;

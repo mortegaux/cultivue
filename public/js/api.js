@@ -1,10 +1,28 @@
 const API = {
   async request(method, url, body) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
+    if (res.status === 401) {
+      window._handleAuthError && window._handleAuthError();
+      throw new Error('Unauthorized');
+    }
     return res.json();
   },
+
+  // Auth
+  authStatus() { return this.request('GET', '/api/auth/status'); },
+  setup(data) { return this.request('POST', '/api/auth/setup', data); },
+  login(username, password) { return this.request('POST', '/api/auth/login', { username, password }); },
+  logout() { return this.request('POST', '/api/auth/logout'); },
+  me() { return this.request('GET', '/api/auth/me'); },
+  changePassword(current_password, new_password) { return this.request('POST', '/api/auth/change-password', { current_password, new_password }); },
+
+  // Admin
+  getUsers() { return this.request('GET', '/api/admin/users'); },
+  createUser(data) { return this.request('POST', '/api/admin/users', data); },
+  setUserActive(id, is_active) { return this.request('PATCH', `/api/admin/users/${id}/active`, { is_active }); },
+  resetUserPassword(id, password) { return this.request('POST', `/api/admin/users/${id}/reset-password`, { password }); },
 
   // Gardens
   getGardens() { return this.request('GET', '/api/gardens'); },
@@ -32,4 +50,7 @@ const API = {
 
   // Stats
   getStats(gardenId) { return this.request('GET', `/api/gardens/${gardenId}/stats`); },
+
+  // Audit
+  getAuditLogs(limit = 50, offset = 0) { return this.request('GET', `/api/audit?limit=${limit}&offset=${offset}`); },
 };
