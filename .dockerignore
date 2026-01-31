@@ -1,0 +1,10 @@
+.git
+.dart_tool
+.packages
+build
+android
+ios
+test
+test_app
+.idea
+*.iml
