@@ -481,6 +481,82 @@ const GROWTH_STAGES = ['seed', 'germination', 'seedling', 'vegetative', 'floweri
 const STAGE_COLORS = { seed: 'gray', germination: 'purple', seedling: 'blue', vegetative: 'green', flowering: 'amber', fruiting: 'red', harvest: 'green' };
 const PLANT_ICONS = { vegetables: '🥬', fruits: '🍅', herbs: '🌿', cannabis: '🌱', flowers: '🌸', other: '🌾' };
 
+// === Tag Select Component ===
+function initTagSelect(containerId, items, opts = {}) {
+  const container = document.getElementById(containerId);
+  if (!container) return { getSelected: () => [] };
+  const selected = new Set(opts.selected || []);
+  const placeholder = opts.placeholder || 'Type to search...';
+  const labelKey = opts.labelKey || 'name';
+  const idKey = opts.idKey || 'id';
+  const disabledIds = new Set(opts.disabledIds || []);
+
+  function render() {
+    const tags = items.filter(it => selected.has(it[idKey]));
+    container.innerHTML = `
+      <div class="tag-select-tags" id="${containerId}-tags">
+        ${tags.map(it => `<span class="tag-select-tag">${esc(it[labelKey])}<button type="button" data-remove="${it[idKey]}" aria-label="Remove ${esc(it[labelKey])}">&times;</button></span>`).join('')}
+        <input class="tag-select-input" id="${containerId}-input" placeholder="${selected.size ? '' : esc(placeholder)}" autocomplete="off">
+      </div>
+      <div class="tag-select-dropdown" id="${containerId}-dropdown" hidden></div>`;
+
+    const input = document.getElementById(`${containerId}-input`);
+    const dropdown = document.getElementById(`${containerId}-dropdown`);
+    let highlightIdx = -1;
+
+    container.querySelector(`#${containerId}-tags`).addEventListener('click', e => {
+      if (e.target.tagName !== 'BUTTON') input.focus();
+    });
+
+    container.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        selected.delete(btn.dataset.remove);
+        render();
+      });
+    });
+
+    function showDropdown(filter) {
+      const available = items.filter(it => !selected.has(it[idKey]) && !disabledIds.has(it[idKey]));
+      const filtered = filter ? available.filter(it => it[labelKey].toLowerCase().includes(filter.toLowerCase())) : available;
+      if (!filtered.length) {
+        dropdown.innerHTML = `<div class="tag-select-empty">${filter ? 'No matches' : 'No items available'}</div>`;
+      } else {
+        dropdown.innerHTML = filtered.map((it, i) =>
+          `<div class="tag-select-option ${i === highlightIdx ? 'highlighted' : ''}" data-id="${it[idKey]}">${esc(it[labelKey])}</div>`
+        ).join('');
+        dropdown.querySelectorAll('.tag-select-option').forEach(opt => {
+          opt.addEventListener('mousedown', e => {
+            e.preventDefault();
+            selected.add(opt.dataset.id);
+            render();
+          });
+        });
+      }
+      dropdown.hidden = false;
+    }
+
+    input.addEventListener('focus', () => { highlightIdx = -1; showDropdown(input.value); });
+    input.addEventListener('input', () => { highlightIdx = -1; showDropdown(input.value); });
+    input.addEventListener('blur', () => { setTimeout(() => { dropdown.hidden = true; }, 150); });
+    input.addEventListener('keydown', e => {
+      const opts = dropdown.querySelectorAll('.tag-select-option');
+      if (e.key === 'ArrowDown') { e.preventDefault(); highlightIdx = Math.min(highlightIdx + 1, opts.length - 1); updateHighlight(opts); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); highlightIdx = Math.max(highlightIdx - 1, 0); updateHighlight(opts); }
+      else if (e.key === 'Enter' && highlightIdx >= 0 && opts[highlightIdx]) { e.preventDefault(); selected.add(opts[highlightIdx].dataset.id); render(); }
+      else if (e.key === 'Backspace' && !input.value && selected.size) { const last = [...selected].pop(); selected.delete(last); render(); }
+    });
+
+    function updateHighlight(opts) {
+      opts.forEach((o, i) => o.classList.toggle('highlighted', i === highlightIdx));
+      if (opts[highlightIdx]) opts[highlightIdx].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  render();
+  return { getSelected: () => [...selected] };
+}
+
 // === Modal with focus trap ===
 let _modalPreviousFocus = null;
 
@@ -848,6 +924,65 @@ async function getAvailableMetrics(garden) {
   ];
 }
 
+function renderLocationField(selectedId) {
+  return `<div class="form-group"><label for="gf-location">Location</label>
+    <div style="display:flex;gap:8px;align-items:start">
+      <select class="form-input" id="gf-location" name="location_id" style="flex:1">
+        <option value="">None</option>
+        ${state.locations.map(l => `<option value="${l.id}" ${selectedId === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
+        <option value="__new__">+ Create New Location</option>
+      </select>
+    </div>
+    <div id="newLocationInline" hidden style="margin-top:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="newLocName" placeholder="Location name" style="flex:1">
+        <button type="button" class="btn btn-primary btn-sm" id="createLocInlineBtn">Add</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="cancelLocInlineBtn">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function setupLocationField() {
+  const select = document.getElementById('gf-location');
+  const inline = document.getElementById('newLocationInline');
+  if (!select || !inline) return;
+
+  select.addEventListener('change', () => {
+    if (select.value === '__new__') {
+      inline.hidden = false;
+      document.getElementById('newLocName').focus();
+    } else {
+      inline.hidden = true;
+    }
+  });
+
+  document.getElementById('cancelLocInlineBtn').addEventListener('click', () => {
+    inline.hidden = true;
+    select.value = '';
+  });
+
+  document.getElementById('createLocInlineBtn').addEventListener('click', async () => {
+    const name = document.getElementById('newLocName').value.trim();
+    if (!name) { document.getElementById('newLocName').focus(); return; }
+    try {
+      const result = await API.createLocation({ name, description: null, sort_order: 0 });
+      state.locations = await API.getLocations().catch(() => state.locations);
+      // Add new option and select it
+      const opt = document.createElement('option');
+      opt.value = result.id;
+      opt.textContent = name;
+      select.insertBefore(opt, select.querySelector('[value="__new__"]'));
+      select.value = result.id;
+      inline.hidden = true;
+      document.getElementById('newLocName').value = '';
+      toast('Location created');
+    } catch {
+      toast('Failed to create location', 'error');
+    }
+  });
+}
+
 function showCreateGardenModal() {
   const enabledTypes = state.gardenTypes.filter(t => t.is_enabled);
   const categories = {};
@@ -871,11 +1006,7 @@ function showCreateGardenModal() {
           `).join('')}
           ${!enabledTypes.length ? Object.entries(SYSTEM_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('') : ''}
         </select></div>
-      ${state.locations.length ? `<div class="form-group"><label for="gf-location">Location</label>
-        <select class="form-input" id="gf-location" name="location_id">
-          <option value="">None</option>
-          ${state.locations.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}
-        </select></div>` : ''}
+      ${renderLocationField(null)}
       <div class="form-group"><label>Plant Types</label>
         <div class="checkbox-group">${PLANT_TYPES.map(t => `<label class="checkbox-label"><input type="checkbox" name="plant_types" value="${t}"> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}</div></div>
       <div class="modal-actions">
@@ -883,6 +1014,7 @@ function showCreateGardenModal() {
         <button type="submit" class="btn btn-primary">Create</button></div>
     </form>
   `);
+  setupLocationField();
   document.getElementById('cancelGarden').addEventListener('click', closeModal);
   document.getElementById('gardenForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -890,7 +1022,8 @@ function showCreateGardenModal() {
     const plant_types = fd.getAll('plant_types');
     if (!plant_types.length) plant_types.push('other');
     const gardenTypeId = fd.get('garden_type_id');
-    await API.createGarden({ name: fd.get('name'), garden_type_id: gardenTypeId, system_type: gardenTypeId, plant_types, start_date: new Date().toISOString(), location_id: fd.get('location_id') || null });
+    const locationId = fd.get('location_id');
+    await API.createGarden({ name: fd.get('name'), garden_type_id: gardenTypeId, system_type: gardenTypeId, plant_types, start_date: new Date().toISOString(), location_id: locationId && locationId !== '__new__' ? locationId : null });
     closeModal();
     toast('Garden created');
     await loadGardens();
@@ -921,11 +1054,7 @@ function showEditGardenModal(garden) {
             </optgroup>
           `).join('')}
         </select></div>
-      ${state.locations.length ? `<div class="form-group"><label for="gf-location">Location</label>
-        <select class="form-input" id="gf-location" name="location_id">
-          <option value="">None</option>
-          ${state.locations.map(l => `<option value="${l.id}" ${garden.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
-        </select></div>` : ''}
+      ${renderLocationField(garden.location_id)}
       <div class="form-group"><label>Plant Types</label>
         <div class="checkbox-group">${PLANT_TYPES.map(t => `<label class="checkbox-label"><input type="checkbox" name="plant_types" value="${t}" ${plantTypes.includes(t) ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}</div></div>
       <div class="form-group"><label class="checkbox-label"><input type="checkbox" name="is_active" ${garden.is_active ? 'checked' : ''}> Active</label></div>
@@ -934,19 +1063,21 @@ function showEditGardenModal(garden) {
         <button type="submit" class="btn btn-primary">Save Changes</button></div>
     </form>
   `);
+  setupLocationField();
   document.getElementById('cancelEdit').addEventListener('click', closeModal);
   document.getElementById('gardenForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const plant_types = fd.getAll('plant_types');
     if (!plant_types.length) plant_types.push('other');
+    const locationId = fd.get('location_id');
     await API.updateGarden(garden.id, {
       name: fd.get('name'),
       garden_type_id: fd.get('garden_type_id'),
       system_type: fd.get('garden_type_id') || garden.system_type,
       plant_types,
       is_active: !!fd.get('is_active'),
-      location_id: fd.get('location_id') || null,
+      location_id: locationId && locationId !== '__new__' ? locationId : null,
     });
     closeModal();
     toast('Garden updated');
@@ -972,15 +1103,18 @@ async function deleteGarden(id) {
 // ============================================
 async function renderLocationsPage(main) {
   main.innerHTML = `
-    <header class="page-header"><div><h1>Locations</h1></div></header>
+    <header class="page-header"><div><h1>Locations</h1></div>
+      <button class="btn btn-primary" type="button" id="addLocationBtn">+ Add Location</button>
+    </header>
     <div id="locationsList"><p class="loading-text">Loading...</p></div>
   `;
+  document.getElementById('addLocationBtn').addEventListener('click', () => showCreateLocationModal(true));
   try {
     state.locations = await API.getLocations();
   } catch { /* use cached */ }
   const el = document.getElementById('locationsList');
   if (!state.locations.length) {
-    el.innerHTML = `<div class="empty-state"><h3>No locations yet</h3><p>Create locations from the Settings page.</p></div>`;
+    el.innerHTML = `<div class="empty-state"><h3>No locations yet</h3><p>Add a location to organize your gardens.</p></div>`;
     return;
   }
   el.innerHTML = `<div class="grid-2">${state.locations.map(loc => `
@@ -2135,22 +2269,48 @@ async function loadLocationsPanel() {
   } catch { el.innerHTML = '<p class="empty-text">Could not load locations.</p>'; }
 }
 
-function showCreateLocationModal() {
+function showCreateLocationModal(fromLocationsPage) {
+  const hasGardens = state.gardens.length > 0;
+  const assignable = state.gardens.filter(g => !g.location_id);
   showModal(`<h2 id="modalTitle">Add Location</h2>
     <form id="locationForm">
       <div class="form-group"><label for="loc-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="loc-name" name="name" required maxlength="100" aria-required="true"></div>
       <div class="form-group"><label for="loc-desc">Description</label><textarea class="form-input" id="loc-desc" name="description" rows="2" maxlength="500"></textarea></div>
+      ${hasGardens ? `<div class="form-group"><label>Assign Gardens</label><div class="tag-select" id="gardenTagSelect"></div>
+        ${!assignable.length ? '<div class="form-hint">All gardens are already assigned to locations.</div>' : ''}
+      </div>` : ''}
       <div class="form-group"><label for="loc-order">Sort Order</label><input class="form-input" id="loc-order" name="sort_order" type="number" min="0" value="0"></div>
       <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelLoc">Cancel</button><button type="submit" class="btn btn-primary">Add Location</button></div>
     </form>`);
+
+  let gardenSelect = { getSelected: () => [] };
+  if (hasGardens) {
+    const disabledIds = state.gardens.filter(g => g.location_id).map(g => g.id);
+    gardenSelect = initTagSelect('gardenTagSelect', assignable, { placeholder: 'Search gardens...', labelKey: 'name', idKey: 'id' });
+  }
+
   document.getElementById('cancelLoc').addEventListener('click', closeModal);
   document.getElementById('locationForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    await API.createLocation({ name: fd.get('name'), description: fd.get('description') || null, sort_order: parseInt(fd.get('sort_order')) || 0 });
+    const result = await API.createLocation({ name: fd.get('name'), description: fd.get('description') || null, sort_order: parseInt(fd.get('sort_order')) || 0 });
+    const gardenIds = gardenSelect.getSelected();
+    if (gardenIds.length && result.id) {
+      await Promise.all(gardenIds.map(gId => {
+        const g = state.gardens.find(garden => garden.id === gId);
+        if (!g) return;
+        return API.updateGarden(gId, { name: g.name, garden_type_id: g.garden_type_id, system_type: g.garden_type_id || g.system_type, plant_types: g.plant_types, is_active: g.is_active, location_id: result.id });
+      }));
+      await loadGardens();
+    }
     closeModal();
     toast('Location created');
-    loadLocationsPanel();
+    if (fromLocationsPage) {
+      state.locations = await API.getLocations().catch(() => state.locations);
+      renderPage();
+    } else {
+      loadLocationsPanel();
+    }
   });
 }
 
