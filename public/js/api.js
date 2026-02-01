@@ -4,15 +4,16 @@ const API = {
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
     if (res.status === 401) {
-      window._handleAuthError && window._handleAuthError();
-      throw new Error('Unauthorized');
+      const err = new Error('Unauthorized');
+      err.status = 401;
+      throw err;
     }
     return res.json();
   },
 
   async download(url) {
     const res = await fetch(url, { credentials: 'same-origin' });
-    if (res.status === 401) { window._handleAuthError && window._handleAuthError(); throw new Error('Unauthorized'); }
+    if (res.status === 401) { const err = new Error('Unauthorized'); err.status = 401; throw err; }
     const blob = await res.blob();
     const disposition = res.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="?([^"]+)"?/);
@@ -51,6 +52,13 @@ const API = {
   // Metrics
   getMetrics() { return this.request('GET', '/api/metrics'); },
 
+  // Locations
+  getLocations() { return this.request('GET', '/api/locations'); },
+  createLocation(data) { return this.request('POST', '/api/locations', data); },
+  updateLocation(id, data) { return this.request('PUT', `/api/locations/${id}`, data); },
+  deleteLocation(id) { return this.request('DELETE', `/api/locations/${id}`); },
+  getLocationGardens(id) { return this.request('GET', `/api/locations/${id}/gardens`); },
+
   // Gardens
   getGardens() { return this.request('GET', '/api/gardens'); },
   createGarden(data) { return this.request('POST', '/api/gardens', data); },
@@ -76,6 +84,17 @@ const API = {
   createPlant(gardenId, data) { return this.request('POST', `/api/gardens/${gardenId}/plants`, data); },
   updatePlant(id, data) { return this.request('PUT', `/api/plants/${id}`, data); },
   deletePlant(id) { return this.request('DELETE', `/api/plants/${id}`); },
+
+  // Seeds
+  getSeeds() { return this.request('GET', '/api/seeds'); },
+  getSeed(id) { return this.request('GET', `/api/seeds/${id}`); },
+  createSeed(data) { return this.request('POST', '/api/seeds', data); },
+  updateSeed(id, data) { return this.request('PUT', `/api/seeds/${id}`, data); },
+  deleteSeed(id) { return this.request('DELETE', `/api/seeds/${id}`); },
+  getSeedMetrics(id) { return this.request('GET', `/api/seeds/${id}/metrics`); },
+
+  // Plant Failures
+  markPlantFailed(id, data) { return this.request('POST', `/api/plants/${id}/fail`, data); },
 
   // Stats
   getStats(gardenId) { return this.request('GET', `/api/gardens/${gardenId}/stats`); },

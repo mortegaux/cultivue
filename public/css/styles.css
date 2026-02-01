@@ -117,7 +117,7 @@ input, select, textarea { font: inherit; }
 .sidebar-footer { padding: 12px; border-top: 1px solid var(--border); }
 
 /* === Main Content === */
-.main-content { flex: 1; margin-left: 240px; padding: var(--space-5); max-width: 1200px; }
+.main-content { flex: 1; margin-left: 240px; padding: var(--space-5); max-width: calc(100vw - 240px); overflow-x: hidden; min-width: 0; }
 
 /* === Page Header === */
 .page-header {
@@ -163,6 +163,7 @@ input, select, textarea { font: inherit; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.grid-2 > *, .grid-3 > *, .grid-4 > *, .content-split > * { min-width: 0; }
 
 /* === Metric Cards === */
 .metric-card { display: flex; align-items: center; gap: 14px; }
@@ -503,10 +504,14 @@ select.form-input {
 /* === Garden Detail Stats === */
 .garden-detail-stats { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
 
+/* === Responsive: Intermediate === */
+@media (max-width: 900px) {
+  .content-split { grid-template-columns: 1fr; }
+}
+
 /* === Responsive: Tablet === */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
-  .content-split { grid-template-columns: 1fr; }
   .main-content { padding: 24px 16px; }
 }
 

@@ -3,6 +3,8 @@ const SYSTEM_TYPES = ['dwc', 'kratky', 'nft', 'ebbAndFlow', 'aeroponics', 'drip'
 const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'other'];
 const GROWTH_STAGES = ['seed', 'germination', 'seedling', 'vegetative', 'flowering', 'fruiting', 'harvest'];
 const PRIORITIES = ['low', 'medium', 'high'];
+const QUANTITY_UNITS = ['packets', 'seeds', 'grams'];
+const FAILURE_STAGES = ['seed', 'germination', 'seedling'];
 
 // Sanitize string: trim, limit length, strip control chars
 function str(val, maxLen = 500) {
@@ -70,6 +72,6 @@ function enumArray(val, allowed) {
 }
 
 module.exports = {
-  SYSTEM_TYPES, PLANT_TYPES, GROWTH_STAGES, PRIORITIES,
+  SYSTEM_TYPES, PLANT_TYPES, GROWTH_STAGES, PRIORITIES, QUANTITY_UNITS, FAILURE_STAGES,
   str, reqStr, num, reqNum, int, isoDate, enumVal, isUUID, enumArray
 };

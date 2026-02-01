@@ -295,7 +295,10 @@ app.put('/api/settings/:key', requireAuth, requireAdmin, (req, res) => {
 });
 
 // === Garden Types API ===
-app.get('/api/garden-types', requireAuth, (req, res) => {
+app.get('/api/garden-types', (req, res, next) => {
+  if (isSetupCompleted()) return requireAuth(req, res, next);
+  next();
+}, (req, res) => {
   const types = db.prepare('SELECT * FROM garden_types ORDER BY sort_order ASC').all();
   res.json(types.map(t => ({ ...t, is_enabled: !!t.is_enabled })));
 });
@@ -319,6 +322,180 @@ app.get('/api/metrics', requireAuth, (req, res) => {
 // === Static files ===
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// === Locations API ===
+app.get('/api/locations', apiLimiter, requireAuth, (req, res) => {
+  const locations = db.prepare(`
+    SELECT l.*, COUNT(g.id) as garden_count
+    FROM locations l
+    LEFT JOIN gardens g ON g.location_id = l.id
+    GROUP BY l.id
+    ORDER BY l.sort_order ASC, l.name ASC
+  `).all();
+  res.json(locations);
+});
+
+app.post('/api/locations', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  const name = V.reqStr(req.body.name, 100);
+  const description = V.str(req.body.description, 500);
+  const sort_order = V.int(req.body.sort_order, 0, 10000) || 0;
+
+  if (!name) return res.status(400).json({ error: 'Location name is required' });
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO locations (id, name, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, name, description, sort_order, now, now);
+
+  logAudit(req.user, 'create', 'location', id, `Created location "${name}"`, getClientIP(req));
+  res.status(201).json({ id, name, description, sort_order, created_at: now, updated_at: now, garden_count: 0 });
+});
+
+app.put('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const name = V.reqStr(req.body.name, 100);
+  const description = V.str(req.body.description, 500);
+  const sort_order = V.int(req.body.sort_order, 0, 10000) || 0;
+
+  if (!name) return res.status(400).json({ error: 'Invalid input' });
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE locations SET name=?, description=?, sort_order=?, updated_at=? WHERE id=?')
+    .run(name, description, sort_order, now, req.params.id);
+
+  logAudit(req.user, 'update', 'location', req.params.id, `Updated location "${name}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.delete('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const location = db.prepare('SELECT name FROM locations WHERE id=?').get(req.params.id);
+  db.prepare('DELETE FROM locations WHERE id=?').run(req.params.id);
+
+  logAudit(req.user, 'delete', 'location', req.params.id, `Deleted location "${location?.name || 'unknown'}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.get('/api/locations/:id/gardens', apiLimiter, requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const gardens = db.prepare('SELECT * FROM gardens WHERE location_id=? ORDER BY start_date DESC').all(req.params.id);
+  res.json(gardens.map(g => ({ ...g, is_active: !!g.is_active, plant_types: g.plant_types ? g.plant_types.split(',') : [] })));
+});
+
+// === Seeds API ===
+app.get('/api/seeds', apiLimiter, requireAuth, (req, res) => {
+  const seeds = db.prepare(`
+    SELECT s.*,
+      COUNT(DISTINCT p.id) as plant_count,
+      COUNT(DISTINCT pf.id) as failure_count
+    FROM seeds s
+    LEFT JOIN plants p ON p.seed_id = s.id
+    LEFT JOIN plant_failures pf ON pf.seed_id = s.id
+    GROUP BY s.id
+    ORDER BY s.created_at DESC
+  `).all();
+  res.json(seeds);
+});
+
+app.get('/api/seeds/:id', apiLimiter, requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const seed = db.prepare('SELECT * FROM seeds WHERE id=?').get(req.params.id);
+  if (!seed) return res.status(404).json({ error: 'Not found' });
+  res.json(seed);
+});
+
+app.post('/api/seeds', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  const name = V.reqStr(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: 'Seed name is required' });
+
+  const variety = V.str(req.body.variety, 100);
+  const supplier = V.str(req.body.supplier, 100);
+  const purchase_date = V.isoDate(req.body.purchase_date);
+  const purchase_price = V.num(req.body.purchase_price, 0, 100000);
+  const quantity = V.int(req.body.quantity, 0, 1000000) || 1;
+  const quantity_unit = V.enumVal(req.body.quantity_unit, V.QUANTITY_UNITS) || 'packets';
+  const expected_germination_rate = V.int(req.body.expected_germination_rate, 0, 100);
+  const days_to_germination = V.int(req.body.days_to_germination, 0, 365);
+  const notes = V.str(req.body.notes, 2000);
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO seeds (id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, now, now);
+
+  logAudit(req.user, 'create', 'seed', id, `Created seed "${name}"`, getClientIP(req));
+  res.status(201).json({ id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at: now, updated_at: now });
+});
+
+app.put('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const name = V.reqStr(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: 'Invalid input' });
+
+  const variety = V.str(req.body.variety, 100);
+  const supplier = V.str(req.body.supplier, 100);
+  const purchase_date = V.isoDate(req.body.purchase_date);
+  const purchase_price = V.num(req.body.purchase_price, 0, 100000);
+  const quantity = V.int(req.body.quantity, 0, 1000000) || 1;
+  const quantity_unit = V.enumVal(req.body.quantity_unit, V.QUANTITY_UNITS) || 'packets';
+  const expected_germination_rate = V.int(req.body.expected_germination_rate, 0, 100);
+  const days_to_germination = V.int(req.body.days_to_germination, 0, 365);
+  const notes = V.str(req.body.notes, 2000);
+  const now = new Date().toISOString();
+
+  db.prepare(`UPDATE seeds SET name=?, variety=?, supplier=?, purchase_date=?, purchase_price=?, quantity=?, quantity_unit=?, expected_germination_rate=?, days_to_germination=?, notes=?, updated_at=? WHERE id=?`)
+    .run(name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, now, req.params.id);
+
+  logAudit(req.user, 'update', 'seed', req.params.id, `Updated seed "${name}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.delete('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const seed = db.prepare('SELECT name FROM seeds WHERE id=?').get(req.params.id);
+  db.prepare('DELETE FROM seeds WHERE id=?').run(req.params.id);
+  logAudit(req.user, 'delete', 'seed', req.params.id, `Deleted seed "${seed?.name || 'unknown'}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.get('/api/seeds/:id/metrics', apiLimiter, requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const totalPlants = db.prepare('SELECT COUNT(*) as count FROM plants WHERE seed_id=?').get(req.params.id).count;
+  const pastGermination = db.prepare(`SELECT COUNT(*) as count FROM plants WHERE seed_id=? AND current_stage NOT IN ('seed', 'germination')`).get(req.params.id).count;
+  const failures = db.prepare(`SELECT failure_stage, failure_reason, COUNT(*) as count FROM plant_failures WHERE seed_id=? GROUP BY failure_stage, failure_reason`).all(req.params.id);
+  const totalFailures = failures.reduce((sum, f) => sum + f.count, 0);
+  const germinationRate = totalPlants > 0 ? Math.round((pastGermination / totalPlants) * 100) : null;
+
+  res.json({ total_plants: totalPlants, past_germination: pastGermination, failures, total_failures: totalFailures, germination_rate: germinationRate });
+});
+
+// === Plant Failure Route ===
+app.post('/api/plants/:id/fail', apiLimiter, requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const plant = db.prepare('SELECT * FROM plants WHERE id=?').get(req.params.id);
+  if (!plant) return res.status(404).json({ error: 'Plant not found' });
+
+  const failure_stage = V.enumVal(req.body.failure_stage, V.FAILURE_STAGES);
+  if (!failure_stage) return res.status(400).json({ error: 'Valid failure stage is required' });
+  const failure_reason = V.str(req.body.failure_reason, 500);
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+
+  db.prepare('INSERT INTO plant_failures (id, plant_id, seed_id, failure_stage, failure_reason, failed_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, plant.seed_id || null, failure_stage, failure_reason, now);
+
+  db.prepare('UPDATE plants SET is_active=0 WHERE id=?').run(req.params.id);
+
+  logAudit(req.user, 'update', 'plant', req.params.id, `Marked plant "${plant.name}" as failed (${failure_stage})`, getClientIP(req));
+  res.status(201).json({ id, plant_id: req.params.id, seed_id: plant.seed_id, failure_stage, failure_reason, failed_at: now });
+});
+
 // === All data API routes require authentication ===
 app.use('/api/gardens', apiLimiter, requireAuth);
 app.use('/api/logs', apiLimiter, requireAuth);
@@ -328,7 +505,7 @@ app.use('/api/audit', apiLimiter, requireAuth);
 
 // === Gardens API ===
 app.get('/api/gardens', (req, res) => {
-  const gardens = db.prepare('SELECT * FROM gardens ORDER BY start_date DESC').all();
+  const gardens = db.prepare('SELECT g.*, l.name as location_name FROM gardens g LEFT JOIN locations l ON g.location_id = l.id ORDER BY g.start_date DESC').all();
   res.json(gardens.map(g => ({ ...g, is_active: !!g.is_active, plant_types: g.plant_types ? g.plant_types.split(',') : [] })));
 });
 
@@ -338,17 +515,18 @@ app.post('/api/gardens', (req, res) => {
   const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES) || garden_type_id || 'hydro-dwc';
   const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES) || ['other'];
   const start_date = V.isoDate(req.body.start_date) || new Date().toISOString();
+  const location_id = req.body.location_id && V.isUUID(req.body.location_id) ? req.body.location_id : null;
 
   if (!name) {
     return res.status(400).json({ error: 'Garden name is required' });
   }
 
   const id = uuidv4();
-  db.prepare('INSERT INTO gardens (id, name, system_type, plant_types, start_date, garden_type_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, name, system_type, plant_types.join(','), start_date, garden_type_id || null);
+  db.prepare('INSERT INTO gardens (id, name, system_type, plant_types, start_date, garden_type_id, location_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, name, system_type, plant_types.join(','), start_date, garden_type_id || null, location_id);
 
   logAudit(req.user, 'create', 'garden', id, `Created garden "${name}"`, getClientIP(req));
-  res.status(201).json({ id, name, system_type, plant_types, start_date, is_active: true, garden_type_id });
+  res.status(201).json({ id, name, system_type, plant_types, start_date, is_active: true, garden_type_id, location_id });
 });
 
 app.put('/api/gardens/:id', (req, res) => {
@@ -359,13 +537,14 @@ app.put('/api/gardens/:id', (req, res) => {
   const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES) || req.body.system_type || '';
   const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES) || ['other'];
   const is_active = req.body.is_active ? 1 : 0;
+  const location_id = req.body.location_id && V.isUUID(req.body.location_id) ? req.body.location_id : null;
 
   if (!name) {
     return res.status(400).json({ error: 'Invalid input' });
   }
 
-  db.prepare('UPDATE gardens SET name=?, system_type=?, plant_types=?, is_active=?, garden_type_id=? WHERE id=?')
-    .run(name, system_type, plant_types.join(','), is_active, garden_type_id || null, req.params.id);
+  db.prepare('UPDATE gardens SET name=?, system_type=?, plant_types=?, is_active=?, garden_type_id=?, location_id=? WHERE id=?')
+    .run(name, system_type, plant_types.join(','), is_active, garden_type_id || null, location_id, req.params.id);
 
   logAudit(req.user, 'update', 'garden', req.params.id, `Updated garden "${name}"`, getClientIP(req));
   res.json({ success: true });
@@ -577,6 +756,7 @@ app.post('/api/gardens/:gardenId/plants', (req, res) => {
   const notes = V.str(req.body.notes, 2000);
   const initial_ph = V.num(req.body.initial_ph, 0, 14);
   const initial_ppm = V.int(req.body.initial_ppm, 0, 100000);
+  const seed_id = req.body.seed_id && V.isUUID(req.body.seed_id) ? req.body.seed_id : null;
 
   if (!name || !plant_type || !species) {
     return res.status(400).json({ error: 'Name, plant type, and species are required' });
@@ -584,11 +764,11 @@ app.post('/api/gardens/:gardenId/plants', (req, res) => {
 
   const id = uuidv4();
   const created_at = new Date().toISOString();
-  db.prepare('INSERT INTO plants (id, garden_id, name, plant_type, species, seeded_date, current_stage, notes, created_at, initial_ph, initial_ppm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.gardenId, name, plant_type, species, seeded_date, current_stage, notes, created_at, initial_ph, initial_ppm);
+  db.prepare('INSERT INTO plants (id, garden_id, name, plant_type, species, seeded_date, current_stage, notes, created_at, initial_ph, initial_ppm, seed_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.gardenId, name, plant_type, species, seeded_date, current_stage, notes, created_at, initial_ph, initial_ppm, seed_id);
 
   logAudit(req.user, 'create', 'plant', id, `Added plant "${name}" (${species})`, getClientIP(req));
-  res.status(201).json({ id, garden_id: req.params.gardenId, name, plant_type, species, seeded_date, current_stage, notes, created_at, is_active: true, initial_ph, initial_ppm });
+  res.status(201).json({ id, garden_id: req.params.gardenId, name, plant_type, species, seeded_date, current_stage, notes, created_at, is_active: true, initial_ph, initial_ppm, seed_id });
 });
 
 app.put('/api/plants/:id', (req, res) => {
@@ -606,13 +786,14 @@ app.put('/api/plants/:id', (req, res) => {
   const is_active = req.body.is_active ? 1 : 0;
   const initial_ph = V.num(req.body.initial_ph, 0, 14);
   const initial_ppm = V.int(req.body.initial_ppm, 0, 100000);
+  const seed_id = req.body.seed_id && V.isUUID(req.body.seed_id) ? req.body.seed_id : null;
 
   if (!name || !plant_type || !species) {
     return res.status(400).json({ error: 'Invalid input' });
   }
 
-  db.prepare(`UPDATE plants SET name=?, plant_type=?, species=?, seeded_date=?, transplanted_date=?, current_stage=?, notes=?, harvest_date=?, yield_amount=?, is_active=?, initial_ph=?, initial_ppm=? WHERE id=?`)
-    .run(name, plant_type, species, seeded_date, transplanted_date, current_stage, notes, harvest_date, yield_amount, is_active, initial_ph, initial_ppm, req.params.id);
+  db.prepare(`UPDATE plants SET name=?, plant_type=?, species=?, seeded_date=?, transplanted_date=?, current_stage=?, notes=?, harvest_date=?, yield_amount=?, is_active=?, initial_ph=?, initial_ppm=?, seed_id=? WHERE id=?`)
+    .run(name, plant_type, species, seeded_date, transplanted_date, current_stage, notes, harvest_date, yield_amount, is_active, initial_ph, initial_ppm, seed_id, req.params.id);
 
   logAudit(req.user, 'update', 'plant', req.params.id, `Updated plant "${name}"`, getClientIP(req));
   res.json({ success: true });

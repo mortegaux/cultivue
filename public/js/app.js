@@ -4,6 +4,8 @@ let state = {
   gardens: [],
   gardenTypes: [],
   metrics: [],
+  locations: [],
+  seeds: [],
   settings: {},
   selectedGardenId: null,
   currentPage: 'dashboard',
@@ -33,7 +35,6 @@ function toast(message, type = 'success') {
 // === Init ===
 document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(state.theme);
-  window._handleAuthError = () => showAuth();
   await checkAuth();
 });
 
@@ -66,14 +67,18 @@ async function enterApp() {
   setupNav();
   renderUserBadge();
   try {
-    const [gardens, types, metrics] = await Promise.all([
-      API.getGardens(),
+    const [gardens, types, metrics, locations, seeds] = await Promise.all([
+      API.getGardens().catch(() => []),
       API.getGardenTypes().catch(() => []),
       API.getMetrics().catch(() => []),
+      API.getLocations().catch(() => []),
+      API.getSeeds().catch(() => []),
     ]);
     state.gardens = gardens;
     state.gardenTypes = types;
     state.metrics = metrics;
+    state.locations = locations;
+    state.seeds = seeds;
     if (state.gardens.length && !state.selectedGardenId) {
       state.selectedGardenId = state.gardens[0].id;
     }
@@ -129,7 +134,7 @@ function showSetupWizard() {
   const screen = document.getElementById('authScreen');
   screen.hidden = false;
   let wizardStep = 1;
-  const wizardData = { admin: {}, settings: { app_name: 'CultiVue', default_units: 'metric', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }, garden_types: [] };
+  const wizardData = { admin: {}, settings: { default_units: 'metric', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }, garden_types: [] };
 
   function renderWizardStep() {
     const totalSteps = 3;
@@ -159,12 +164,8 @@ function showSetupWizard() {
         </div>`;
     } else if (wizardStep === 2) {
       stepContent = `
-        <h2>Step 2: App Settings</h2>
+        <h2>Step 2: Preferences</h2>
         <p class="wizard-desc">Configure your CultiVue preferences.</p>
-        <div class="form-group">
-          <label for="wiz-appname">App Name</label>
-          <input class="form-input" id="wiz-appname" name="app_name" value="${esc(wizardData.settings.app_name)}" maxlength="100">
-        </div>
         <div class="form-group">
           <label for="wiz-units">Default Units</label>
           <select class="form-input" id="wiz-units" name="default_units">
@@ -271,7 +272,6 @@ function showSetupWizard() {
       wizardData.admin.password = form.querySelector('[name="password"]')?.value || '';
     } else if (wizardStep === 2) {
       const form = document.getElementById('wizardForm');
-      wizardData.settings.app_name = form.querySelector('[name="app_name"]')?.value || 'CultiVue';
       wizardData.settings.default_units = form.querySelector('[name="default_units"]')?.value || 'metric';
       wizardData.settings.timezone = form.querySelector('[name="timezone"]')?.value || 'UTC';
     } else if (wizardStep === 3) {
@@ -373,7 +373,7 @@ function navigateTo(page, data) {
   state.currentPage = page;
   if (data) Object.assign(state, data);
   document.querySelectorAll('.nav-link').forEach(l => {
-    const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens');
+    const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens') || (page === 'location-detail' && l.dataset.page === 'locations') || (page === 'seed-detail' && l.dataset.page === 'seeds');
     l.classList.toggle('active', isActive);
     if (isActive) l.setAttribute('aria-current', 'page');
     else l.removeAttribute('aria-current');
@@ -429,9 +429,13 @@ function renderPage() {
   switch (state.currentPage) {
     case 'dashboard': renderDashboard(main); break;
     case 'gardens': renderGardensPage(main); break;
+    case 'locations': renderLocationsPage(main); break;
+    case 'location-detail': renderLocationDetail(main); break;
     case 'logs': renderLogs(main); break;
     case 'tasks': renderTasks(main); break;
     case 'plants': renderPlants(main); break;
+    case 'seeds': renderSeeds(main); break;
+    case 'seed-detail': renderSeedDetail(main); break;
     case 'settings': renderSettings(main); break;
     case 'garden-detail': {
       const garden = getSelectedGarden();
@@ -575,7 +579,10 @@ async function renderDashboard(main) {
         return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
           <div class="garden-card-header">
             <h3>${esc(garden.name)}</h3>
-            <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+              ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+            </div>
           </div>
           <div class="grid-4" style="gap:12px">
             <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
@@ -671,7 +678,10 @@ async function renderGardensPage(main) {
     return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
       <div class="garden-card-header">
         <h3>${esc(garden.name)}</h3>
-        <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+          ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+        </div>
       </div>
       <div class="grid-4" style="gap:12px">
         <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
@@ -711,7 +721,10 @@ async function renderGardenDetailPage(main, garden) {
         <button class="btn btn-danger btn-sm" type="button" id="deleteGardenBtn" aria-label="Delete garden">Delete</button>
       </div>
     </header>
-    <div class="badge badge-${catColor}" style="margin-bottom:16px">${catIcon} ${esc(getGardenTypeDisplay(garden))}</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+      ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+    </div>
     <div class="garden-detail-stats">
       <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
       <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
@@ -858,6 +871,11 @@ function showCreateGardenModal() {
           `).join('')}
           ${!enabledTypes.length ? Object.entries(SYSTEM_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('') : ''}
         </select></div>
+      ${state.locations.length ? `<div class="form-group"><label for="gf-location">Location</label>
+        <select class="form-input" id="gf-location" name="location_id">
+          <option value="">None</option>
+          ${state.locations.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}
+        </select></div>` : ''}
       <div class="form-group"><label>Plant Types</label>
         <div class="checkbox-group">${PLANT_TYPES.map(t => `<label class="checkbox-label"><input type="checkbox" name="plant_types" value="${t}"> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}</div></div>
       <div class="modal-actions">
@@ -872,7 +890,7 @@ function showCreateGardenModal() {
     const plant_types = fd.getAll('plant_types');
     if (!plant_types.length) plant_types.push('other');
     const gardenTypeId = fd.get('garden_type_id');
-    await API.createGarden({ name: fd.get('name'), garden_type_id: gardenTypeId, system_type: gardenTypeId, plant_types, start_date: new Date().toISOString() });
+    await API.createGarden({ name: fd.get('name'), garden_type_id: gardenTypeId, system_type: gardenTypeId, plant_types, start_date: new Date().toISOString(), location_id: fd.get('location_id') || null });
     closeModal();
     toast('Garden created');
     await loadGardens();
@@ -903,6 +921,11 @@ function showEditGardenModal(garden) {
             </optgroup>
           `).join('')}
         </select></div>
+      ${state.locations.length ? `<div class="form-group"><label for="gf-location">Location</label>
+        <select class="form-input" id="gf-location" name="location_id">
+          <option value="">None</option>
+          ${state.locations.map(l => `<option value="${l.id}" ${garden.location_id === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
+        </select></div>` : ''}
       <div class="form-group"><label>Plant Types</label>
         <div class="checkbox-group">${PLANT_TYPES.map(t => `<label class="checkbox-label"><input type="checkbox" name="plant_types" value="${t}" ${plantTypes.includes(t) ? 'checked' : ''}> ${t.charAt(0).toUpperCase() + t.slice(1)}</label>`).join('')}</div></div>
       <div class="form-group"><label class="checkbox-label"><input type="checkbox" name="is_active" ${garden.is_active ? 'checked' : ''}> Active</label></div>
@@ -923,6 +946,7 @@ function showEditGardenModal(garden) {
       system_type: fd.get('garden_type_id') || garden.system_type,
       plant_types,
       is_active: !!fd.get('is_active'),
+      location_id: fd.get('location_id') || null,
     });
     closeModal();
     toast('Garden updated');
@@ -944,17 +968,155 @@ async function deleteGarden(id) {
 }
 
 // ============================================
+// === LOCATIONS
+// ============================================
+async function renderLocationsPage(main) {
+  main.innerHTML = `
+    <header class="page-header"><div><h1>Locations</h1></div></header>
+    <div id="locationsList"><p class="loading-text">Loading...</p></div>
+  `;
+  try {
+    state.locations = await API.getLocations();
+  } catch { /* use cached */ }
+  const el = document.getElementById('locationsList');
+  if (!state.locations.length) {
+    el.innerHTML = `<div class="empty-state"><h3>No locations yet</h3><p>Create locations from the Settings page.</p></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="grid-2">${state.locations.map(loc => `
+    <button class="card garden-card" type="button" data-location-id="${loc.id}">
+      <div class="garden-card-header">
+        <h3>${esc(loc.name)}</h3>
+        <span class="badge badge-blue">${loc.garden_count} garden${loc.garden_count !== 1 ? 's' : ''}</span>
+      </div>
+      ${loc.description ? `<p class="secondary-text" style="margin:8px 0 0">${esc(loc.description)}</p>` : ''}
+    </button>
+  `).join('')}</div>`;
+  el.querySelectorAll('[data-location-id]').forEach(card => {
+    card.addEventListener('click', () => {
+      state._selectedLocationId = card.dataset.locationId;
+      navigateTo('location-detail');
+    });
+  });
+}
+
+async function renderLocationDetail(main) {
+  const locationId = state._selectedLocationId;
+  const location = state.locations.find(l => l.id === locationId);
+  if (!location) { navigateTo('locations'); return; }
+
+  main.innerHTML = `
+    <header class="page-header">
+      <div>
+        <p class="subtitle"><button class="link-btn" type="button" id="backToLocations">Locations</button> / ${esc(location.name)}</p>
+        <h1>${esc(location.name)}</h1>
+      </div>
+    </header>
+    ${location.description ? `<p class="secondary-text" style="margin-bottom:16px">${esc(location.description)}</p>` : ''}
+    <div id="locationGardensList"><p class="loading-text">Loading...</p></div>
+  `;
+  document.getElementById('backToLocations').addEventListener('click', () => navigateTo('locations'));
+
+  try {
+    const gardens = await API.getLocationGardens(locationId);
+    const el = document.getElementById('locationGardensList');
+    if (!gardens.length) {
+      el.innerHTML = '<div class="empty-state"><h3>No gardens at this location</h3><p>Assign gardens to this location when creating or editing them.</p></div>';
+      return;
+    }
+    const allStats = await Promise.all(gardens.map(g => API.getStats(g.id)));
+    el.innerHTML = `<div class="grid-2">${gardens.map((garden, i) => {
+      const stats = allStats[i];
+      const category = getGardenCategory(garden);
+      const catColor = CATEGORY_COLORS[category] || 'green';
+      const catIcon = CATEGORY_ICONS[category] || '🌱';
+      return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
+        <div class="garden-card-header">
+          <h3>${esc(garden.name)}</h3>
+          <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+        </div>
+        <div class="grid-4" style="gap:12px">
+          <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
+          <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
+          <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
+          <div class="metric-card"><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div>
+        </div>
+        ${renderGardenHealthBar(stats, garden)}
+      </button>`;
+    }).join('')}</div>`;
+    el.querySelectorAll('.garden-card').forEach(card => {
+      card.addEventListener('click', () => viewGardenDetail(card.dataset.gardenId));
+    });
+  } catch {
+    document.getElementById('locationGardensList').innerHTML = '<p class="empty-text">Failed to load gardens.</p>';
+  }
+}
+
+// ============================================
 // === LOGS
 // ============================================
 async function renderLogs(main) {
-  const garden = getSelectedGarden();
-  if (!garden) {
-    main.innerHTML = '<div class="empty-state"><h3>Select a garden first</h3><p>Go to Gardens to select one.</p></div>';
+  if (!state.gardens.length) {
+    main.innerHTML = '<div class="empty-state"><h3>No gardens yet</h3><p>Create a garden from the Dashboard first.</p></div>';
     return;
   }
-  // Redirect to garden detail logs tab
-  state._gardenDetailTab = 'logs';
-  renderGardenDetailPage(main, garden);
+  const selectedId = state.selectedGardenId || state.gardens[0].id;
+  const garden = state.gardens.find(g => g.id === selectedId) || state.gardens[0];
+
+  main.innerHTML = `
+    <header class="page-header">
+      <div><h1>Logs</h1></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="form-input" id="logsGardenSelect" style="width:auto" aria-label="Select garden">
+          ${state.gardens.map(g => `<option value="${g.id}" ${g.id === garden.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-sm" type="button" id="exportLogsBtn">Export CSV</button>
+        <button class="btn btn-primary" type="button" id="addLogBtn">+ Add Log</button>
+      </div>
+    </header>
+    <div id="logsContent"><p class="loading-text">Loading...</p></div>
+  `;
+
+  document.getElementById('logsGardenSelect').addEventListener('change', e => {
+    state.selectedGardenId = e.target.value;
+    renderLogs(main);
+  });
+
+  async function loadLogsForGarden(g) {
+    document.getElementById('addLogBtn').addEventListener('click', () => showAddLogModal(g));
+    document.getElementById('exportLogsBtn').addEventListener('click', () => API.exportLogs(g.id));
+
+    const container = document.getElementById('logsContent');
+    const logs = await API.getLogs(g.id);
+    const availableMetrics = await getAvailableMetrics(g);
+
+    container.innerHTML = `
+      <div class="content-split"><div>
+        <div class="metric-tabs" role="tablist" aria-label="Metric selector" id="metricTabs"></div>
+        <div class="card"><div class="chart-container"><canvas id="logsChart"></canvas></div></div></div>
+        <div><div class="card" style="padding:0">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><h3>Recent Logs</h3><span id="logCount" class="secondary-text">${logs.length} entries</span></div>
+          <div id="logsList" style="padding:0 20px;max-height:400px;overflow-y:auto"></div></div></div></div>`;
+
+    const tabsEl = document.getElementById('metricTabs');
+    const defaultMetric = availableMetrics[0]?.id || 'ph';
+    tabsEl.innerHTML = availableMetrics.slice(0, 6).map((m, i) => `<button class="metric-tab ${i === 0 ? 'active' : ''}" role="tab" data-metric="${m.id}" type="button">${esc(m.name)}</button>`).join('');
+    tabsEl.querySelectorAll('.metric-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabsEl.querySelectorAll('.metric-tab').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        renderLogsChart(logs, btn.dataset.metric, availableMetrics);
+      });
+    });
+
+    renderLogsChart(logs, defaultMetric, availableMetrics);
+    renderLogsList(logs, availableMetrics);
+  }
+
+  try { await loadLogsForGarden(garden); } catch {
+    const c = document.getElementById('logsContent');
+    if (c) c.innerHTML = '<p class="empty-text">Failed to load logs.</p>';
+  }
 }
 
 function renderLogsChart(logs, metric, availableMetrics) {
@@ -1082,13 +1244,110 @@ async function showAddLogModal(garden) {
 // === TASKS
 // ============================================
 async function renderTasks(main) {
-  const garden = getSelectedGarden();
-  if (!garden) {
-    main.innerHTML = '<div class="empty-state"><h3>Select a garden first</h3></div>';
+  if (!state.gardens.length) {
+    main.innerHTML = '<div class="empty-state"><h3>No gardens yet</h3><p>Create a garden from the Dashboard first.</p></div>';
     return;
   }
-  state._gardenDetailTab = 'tasks';
-  renderGardenDetailPage(main, garden);
+
+  main.innerHTML = `
+    <header class="page-header">
+      <div><h1>Tasks</h1></div>
+      <button class="btn btn-primary" type="button" id="addTaskBtnGlobal">+ New Task</button>
+    </header>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      <select class="form-input" id="tasksGardenFilter" style="width:auto" aria-label="Filter by garden">
+        <option value="">All Gardens</option>
+        ${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}
+      </select>
+      <div class="tabs" style="max-width:300px" role="tablist">
+        <button class="tab active" role="tab" data-tab="active" type="button">Active</button>
+        <button class="tab" role="tab" data-tab="completed" type="button">Completed</button>
+      </div>
+    </div>
+    <div id="globalTasksList"><p class="loading-text">Loading...</p></div>
+  `;
+
+  document.getElementById('addTaskBtnGlobal').addEventListener('click', () => {
+    // Default to first garden, or let user pick
+    showAddTaskModal(state.selectedGardenId || state.gardens[0].id);
+  });
+
+  let allTasks = [];
+  let currentTab = 'active';
+  let gardenFilter = '';
+
+  function renderFilteredTasks() {
+    let filtered = allTasks.filter(t => currentTab === 'active' ? !t.is_completed : t.is_completed);
+    if (gardenFilter) filtered = filtered.filter(t => t.garden_id === gardenFilter);
+
+    const el = document.getElementById('globalTasksList');
+    if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${currentTab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
+
+    el.innerHTML = filtered.map(task => {
+      const isOverdue = !task.is_completed && new Date(task.due_date) < new Date();
+      return `<div class="task-item">
+        <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
+        <div class="task-content">
+          <div class="task-title ${task.is_completed ? 'completed' : ''}">${esc(task.title)}</div>
+          <div class="task-meta">
+            <span><span class="priority-dot priority-${task.priority}" aria-hidden="true"></span>${task.priority}</span>
+            <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}</span>
+            ${task.is_recurring ? '<span>Recurring</span>' : ''}
+            <span class="badge badge-blue">${esc(task.garden_name)}</span>
+          </div>
+        </div>
+        <div class="task-actions">
+          <button class="btn btn-secondary btn-sm" type="button" data-edit-task="${task.id}" aria-label="Edit task">Edit</button>
+          <button class="btn-icon btn-sm" type="button" data-delete-task="${task.id}" aria-label="Delete task" title="Delete">&#x1F5D1;</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    el.querySelectorAll('[data-toggle-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await API.toggleTask(btn.dataset.toggleId);
+        toast(btn.classList.contains('checked') ? 'Task reopened' : 'Task completed');
+        allTasks = await API.getAllTasks();
+        renderFilteredTasks();
+      });
+    });
+    el.querySelectorAll('[data-delete-task]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this task?')) return;
+        await API.deleteTask(btn.dataset.deleteTask);
+        toast('Task deleted');
+        allTasks = await API.getAllTasks();
+        renderFilteredTasks();
+      });
+    });
+    el.querySelectorAll('[data-edit-task]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = allTasks.find(t => t.id === btn.dataset.editTask);
+        if (task) showEditTaskModal(task);
+      });
+    });
+  }
+
+  main.querySelectorAll('.tabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      main.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      currentTab = btn.dataset.tab;
+      renderFilteredTasks();
+    });
+  });
+
+  document.getElementById('tasksGardenFilter').addEventListener('change', e => {
+    gardenFilter = e.target.value;
+    renderFilteredTasks();
+  });
+
+  try {
+    allTasks = await API.getAllTasks();
+    renderFilteredTasks();
+  } catch {
+    document.getElementById('globalTasksList').innerHTML = '<p class="empty-text">Failed to load tasks.</p>';
+  }
 }
 
 function renderTasksList(tasks, tab) {
@@ -1207,8 +1466,15 @@ function showEditTaskModal(task) {
 // ============================================
 async function renderPlants(main) {
   main.innerHTML = `<header class="page-header"><div><h1>All Plants</h1></div>
-    <div style="display:flex;gap:8px"><select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></header>
+    <div style="display:flex;gap:8px">
+      <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
+      ${state.gardens.length ? '<button class="btn btn-primary" type="button" id="addPlantGlobalBtn">+ Add Plant</button>' : ''}
+    </div></header>
     <div id="plantsList"><p class="loading-text">Loading...</p></div>`;
+
+  if (state.gardens.length) {
+    document.getElementById('addPlantGlobalBtn').addEventListener('click', () => showAddPlantModal(null));
+  }
 
   if (!state.gardens.length) {
     document.getElementById('plantsList').innerHTML = '<div class="empty-state"><h3>No gardens yet</h3><p>Create a garden from the Dashboard first.</p></div>';
@@ -1238,7 +1504,7 @@ function renderPlantsGrid(plants, el, showGarden = false) {
     return `<button class="card plant-card" type="button" data-plant-id="${plant.id}">
       <div class="plant-avatar" aria-hidden="true">${PLANT_ICONS[plant.plant_type] || '🌱'}</div>
       <div class="plant-info"><h3>${esc(plant.name)}</h3><div class="species">${esc(plant.species)}</div>
-        <div class="plant-badges"><span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span><span class="badge badge-gray">${ageStr} old</span>${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}</div></div>
+        <div class="plant-badges"><span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span><span class="badge badge-gray">${ageStr} old</span>${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}${plant.seed_id && getSeedName(plant.seed_id) ? `<span class="badge badge-green">${esc(getSeedName(plant.seed_id))}</span>` : ''}</div></div>
     </button>`;
   }).join('')}</div>`;
   el.querySelectorAll('.plant-card').forEach(card => {
@@ -1247,28 +1513,46 @@ function renderPlantsGrid(plants, el, showGarden = false) {
 }
 
 function showAddPlantModal(gardenId) {
+  const showGardenPicker = !gardenId && state.gardens.length > 0;
   showModal(`<h2 id="modalTitle">Add New Plant</h2><form id="plantForm">
-    <div class="form-group"><label for="pf-name">Plant Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-name" name="name" placeholder="e.g., Tomato Plant #1" required aria-required="true"></div>
+    ${showGardenPicker ? `<div class="form-group"><label for="pf-garden">Garden <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-garden" name="garden_id" required aria-required="true">${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>` : ''}
+    <div class="form-row"><div class="form-group" style="flex:1"><label for="pf-name">Plant Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-name" name="name" placeholder="e.g., Cherry Tomato" required aria-required="true"></div>
+      <div class="form-group" style="max-width:100px"><label for="pf-qty">Quantity</label><input class="form-input" id="pf-qty" name="quantity" type="number" min="1" max="100" value="1"></div></div>
+    <div class="form-hint" id="qtyHint" hidden style="margin-top:-12px;margin-bottom:12px">Plants will be named "Name #1", "Name #2", etc.</div>
     <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-type" name="plant_type" required aria-required="true">${PLANT_TYPES.map(t => `<option value="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
       <div class="form-group"><label for="pf-species">Species <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-species" name="species" placeholder="e.g., Cherry Tomato" required aria-required="true"></div></div>
     <div class="form-row"><div class="form-group"><label for="pf-seeded">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
       <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></div>
+    ${state.seeds.length ? `<div class="form-group"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}">${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
     <div class="form-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0"></div>
       <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" placeholder="800"></div></div>
     <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2" placeholder="Any notes..."></textarea></div>
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelPlant">Cancel</button><button type="submit" class="btn btn-primary">Add Plant</button></div></form>`);
   document.getElementById('cancelPlant').addEventListener('click', closeModal);
+  document.getElementById('pf-qty').addEventListener('input', e => {
+    document.getElementById('qtyHint').hidden = parseInt(e.target.value) <= 1;
+  });
   document.getElementById('plantForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    await API.createPlant(gardenId, {
-      name: fd.get('name'), plant_type: fd.get('plant_type'), species: fd.get('species'),
+    const targetGardenId = gardenId || fd.get('garden_id');
+    const qty = Math.min(Math.max(parseInt(fd.get('quantity')) || 1, 1), 100);
+    const baseName = fd.get('name');
+    const plantData = {
+      plant_type: fd.get('plant_type'), species: fd.get('species'),
       seeded_date: fd.get('seeded_date') ? new Date(fd.get('seeded_date')).toISOString() : null,
       current_stage: fd.get('current_stage'), initial_ph: fd.get('initial_ph') ? parseFloat(fd.get('initial_ph')) : null,
-      initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null
-    });
+      initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null,
+      seed_id: fd.get('seed_id') || null
+    };
+    const promises = [];
+    for (let i = 0; i < qty; i++) {
+      const name = qty > 1 ? `${baseName} #${i + 1}` : baseName;
+      promises.push(API.createPlant(targetGardenId, { ...plantData, name }));
+    }
+    await Promise.all(promises);
     closeModal();
-    toast('Plant added');
+    toast(qty > 1 ? `${qty} plants added` : 'Plant added');
     renderPage();
   });
 }
@@ -1277,10 +1561,13 @@ function showPlantDetail(id) {
   const plant = (window._plants || []).find(p => p.id === id);
   if (!plant) return;
 
+  const seedName = getSeedName(plant.seed_id);
+  const canFail = plant.is_active && ['seed', 'germination', 'seedling'].includes(plant.current_stage);
   showModal(`<h2 id="modalTitle">${esc(plant.name)}</h2>
-    <div style="margin-bottom:16px;display:flex;gap:8px">
+    <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
       <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
       <span class="badge badge-gray">${esc(plant.plant_type)}</span>
+      ${seedName ? `<span class="badge badge-green">Seed: ${esc(seedName)}</span>` : ''}
     </div>
     <div class="detail-grid">
       <div><div class="detail-label">Species</div><div class="detail-value">${esc(plant.species)}</div></div>
@@ -1293,6 +1580,7 @@ function showPlantDetail(id) {
     </div>
     ${plant.notes ? `<div class="detail-notes">${esc(plant.notes)}</div>` : ''}
     <div class="modal-actions">
+      ${canFail ? '<button class="btn btn-danger btn-sm" type="button" id="failPlantBtn">Mark as Failed</button>' : ''}
       <button class="btn btn-danger btn-sm" type="button" id="deletePlantBtn">Delete</button>
       <button class="btn btn-secondary" type="button" id="editPlantBtn">Edit</button>
       <button class="btn btn-secondary" type="button" id="closePlantBtn">Close</button>
@@ -1309,6 +1597,12 @@ function showPlantDetail(id) {
     closeModal();
     showEditPlantModal(plant);
   });
+  if (canFail) {
+    document.getElementById('failPlantBtn').addEventListener('click', () => {
+      closeModal();
+      showMarkPlantFailedModal(plant);
+    });
+  }
 }
 
 function showEditPlantModal(plant) {
@@ -1326,6 +1620,7 @@ function showEditPlantModal(plant) {
       <div class="form-group"><label for="pf-harvest">Harvest Date</label><input class="form-input" id="pf-harvest" name="harvest_date" type="date" value="${harvestDate}"></div></div>
     <div class="form-row"><div class="form-group"><label for="pf-yield">Yield Amount</label><input class="form-input" id="pf-yield" name="yield_amount" type="number" step="0.1" value="${plant.yield_amount || ''}"></div>
       <div class="form-group"><label class="checkbox-label" style="margin-top:28px"><input type="checkbox" name="is_active" ${plant.is_active ? 'checked' : ''}> Active</label></div></div>
+    ${state.seeds.length ? `<div class="form-group"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}" ${plant.seed_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
     <div class="form-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" value="${plant.initial_ph || ''}"></div>
       <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" value="${plant.initial_ppm || ''}"></div></div>
     <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2">${esc(plant.notes || '')}</textarea></div>
@@ -1341,12 +1636,262 @@ function showEditPlantModal(plant) {
       current_stage: fd.get('current_stage'), harvest_date: fd.get('harvest_date') ? new Date(fd.get('harvest_date')).toISOString() : null,
       yield_amount: fd.get('yield_amount') ? parseFloat(fd.get('yield_amount')) : null,
       is_active: !!fd.get('is_active'), initial_ph: fd.get('initial_ph') ? parseFloat(fd.get('initial_ph')) : null,
-      initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null
+      initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null,
+      seed_id: fd.get('seed_id') || null
     });
     closeModal();
     toast('Plant updated');
     renderPage();
   });
+}
+
+function showMarkPlantFailedModal(plant) {
+  showModal(`<h2 id="modalTitle">Mark Plant as Failed</h2>
+    <p class="wizard-desc">This will mark <strong>${esc(plant.name)}</strong> as inactive and record the failure.</p>
+    <form id="failForm">
+      <div class="form-group"><label for="ff-stage">Failure Stage <span class="required" aria-hidden="true">*</span></label>
+        <select class="form-input" id="ff-stage" name="failure_stage" required aria-required="true">
+          <option value="seed" ${plant.current_stage === 'seed' ? 'selected' : ''}>Seed</option>
+          <option value="germination" ${plant.current_stage === 'germination' ? 'selected' : ''}>Germination</option>
+          <option value="seedling" ${plant.current_stage === 'seedling' ? 'selected' : ''}>Seedling</option>
+        </select></div>
+      <div class="form-group"><label for="ff-reason">Reason</label><textarea class="form-input" id="ff-reason" name="failure_reason" rows="3" placeholder="What went wrong?"></textarea></div>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelFail">Cancel</button><button type="submit" class="btn btn-danger">Mark as Failed</button></div>
+    </form>`);
+  document.getElementById('cancelFail').addEventListener('click', closeModal);
+  document.getElementById('failForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await API.markPlantFailed(plant.id, {
+      failure_stage: fd.get('failure_stage'),
+      failure_reason: fd.get('failure_reason') || null
+    });
+    closeModal();
+    toast('Plant marked as failed');
+    renderPage();
+  });
+}
+
+// ============================================
+// === SEEDS
+// ============================================
+async function renderSeeds(main) {
+  const isAdmin = state.user?.is_admin;
+  main.innerHTML = `
+    <header class="page-header"><div><h1>Seed Inventory</h1></div>
+      ${isAdmin ? '<button class="btn btn-primary" type="button" id="addSeedBtn">+ Add Seed</button>' : ''}
+    </header>
+    <div id="seedsList"><p class="loading-text">Loading...</p></div>
+  `;
+  if (isAdmin) document.getElementById('addSeedBtn').addEventListener('click', showAddSeedModal);
+
+  try {
+    state.seeds = await API.getSeeds();
+    const el = document.getElementById('seedsList');
+    if (!state.seeds.length) {
+      el.innerHTML = '<div class="empty-state"><h3>No seeds yet</h3><p>Add seeds to track your inventory and performance.</p></div>';
+      return;
+    }
+    el.innerHTML = `<div class="grid-2">${state.seeds.map(seed => {
+      const rate = seed.plant_count > 0 ? Math.round(((seed.plant_count - seed.failure_count) / seed.plant_count) * 100) : null;
+      return `<button class="card garden-card" type="button" data-seed-id="${seed.id}">
+        <div class="garden-card-header">
+          <h3>${esc(seed.name)}</h3>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
+            ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
+          </div>
+        </div>
+        <div class="grid-4" style="gap:12px">
+          <div class="metric-card"><div class="metric-value">${seed.quantity}</div><div class="metric-label">${esc(seed.quantity_unit)}</div></div>
+          <div class="metric-card"><div class="metric-value">${seed.plant_count}</div><div class="metric-label">Plants</div></div>
+          <div class="metric-card"><div class="metric-value">${rate != null ? rate + '%' : '--'}</div><div class="metric-label">Success</div></div>
+          <div class="metric-card"><div class="metric-value">${seed.days_to_germination ?? '--'}</div><div class="metric-label">Days to Germ.</div></div>
+        </div>
+      </button>`;
+    }).join('')}</div>`;
+    el.querySelectorAll('[data-seed-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        state._selectedSeedId = card.dataset.seedId;
+        navigateTo('seed-detail');
+      });
+    });
+  } catch {
+    document.getElementById('seedsList').innerHTML = '<p class="empty-text">Failed to load seeds.</p>';
+  }
+}
+
+async function renderSeedDetail(main) {
+  const seedId = state._selectedSeedId;
+  if (!seedId) { navigateTo('seeds'); return; }
+
+  const isAdmin = state.user?.is_admin;
+  main.innerHTML = '<p class="loading-text">Loading...</p>';
+
+  try {
+    const [seed, metrics] = await Promise.all([API.getSeed(seedId), API.getSeedMetrics(seedId)]);
+
+    main.innerHTML = `
+      <header class="page-header">
+        <div>
+          <p class="subtitle"><button class="link-btn" type="button" id="backToSeeds">Seeds</button> / ${esc(seed.name)}</p>
+          <h1>${esc(seed.name)}</h1>
+        </div>
+        ${isAdmin ? `<div class="header-actions">
+          <button class="btn btn-secondary btn-sm" type="button" id="editSeedBtn">Edit</button>
+          <button class="btn btn-danger btn-sm" type="button" id="deleteSeedBtn">Delete</button>
+        </div>` : ''}
+      </header>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
+        ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
+      </div>
+      <div class="content-split">
+        <div>
+          <h2 class="section-heading">Inventory Details</h2>
+          <div class="card">
+            <div class="detail-grid">
+              <div><div class="detail-label">Quantity</div><div class="detail-value">${seed.quantity} ${esc(seed.quantity_unit)}</div></div>
+              <div><div class="detail-label">Supplier</div><div class="detail-value">${esc(seed.supplier) || '--'}</div></div>
+              <div><div class="detail-label">Purchase Date</div><div class="detail-value">${formatDate(seed.purchase_date)}</div></div>
+              <div><div class="detail-label">Purchase Price</div><div class="detail-value">${seed.purchase_price != null ? '$' + seed.purchase_price.toFixed(2) : '--'}</div></div>
+              <div><div class="detail-label">Expected Germ. Rate</div><div class="detail-value">${seed.expected_germination_rate != null ? seed.expected_germination_rate + '%' : '--'}</div></div>
+              <div><div class="detail-label">Days to Germination</div><div class="detail-value">${seed.days_to_germination ?? '--'}</div></div>
+            </div>
+            ${seed.notes ? `<div class="detail-notes">${esc(seed.notes)}</div>` : ''}
+          </div>
+        </div>
+        <div>
+          <h2 class="section-heading">Performance Metrics</h2>
+          <div class="card">
+            <div class="grid-2" style="margin-bottom:16px">
+              <div class="metric-card"><div class="metric-icon green" aria-hidden="true">🌱</div><div><div class="metric-value">${metrics.total_plants}</div><div class="metric-label">Total Plants</div></div></div>
+              <div class="metric-card"><div class="metric-icon blue" aria-hidden="true">✓</div><div><div class="metric-value">${metrics.past_germination}</div><div class="metric-label">Past Germination</div></div></div>
+              <div class="metric-card"><div class="metric-icon ${metrics.germination_rate != null && metrics.germination_rate >= 70 ? 'green' : metrics.germination_rate != null && metrics.germination_rate >= 40 ? 'amber' : 'red'}" aria-hidden="true">%</div><div><div class="metric-value">${metrics.germination_rate != null ? metrics.germination_rate + '%' : '--'}</div><div class="metric-label">Germination Rate</div></div></div>
+              <div class="metric-card"><div class="metric-icon red" aria-hidden="true">✗</div><div><div class="metric-value">${metrics.total_failures}</div><div class="metric-label">Failures</div></div></div>
+            </div>
+            ${metrics.failures.length ? `
+              <h3 style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px">Failure Breakdown</h3>
+              ${metrics.failures.map(f => `<div class="settings-item" style="padding:8px 0">
+                <div><div class="settings-item-label">${esc(f.failure_stage)}${f.failure_reason ? ': ' + esc(f.failure_reason) : ''}</div></div>
+                <span class="badge badge-red">${f.count}</span>
+              </div>`).join('')}
+            ` : '<p class="empty-text">No failures recorded.</p>'}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('backToSeeds').addEventListener('click', () => navigateTo('seeds'));
+    if (isAdmin) {
+      document.getElementById('editSeedBtn').addEventListener('click', () => showEditSeedModal(seed));
+      document.getElementById('deleteSeedBtn').addEventListener('click', async () => {
+        if (!confirm('Delete this seed? Plants will keep their data but lose the seed reference.')) return;
+        await API.deleteSeed(seed.id);
+        toast('Seed deleted');
+        navigateTo('seeds');
+      });
+    }
+  } catch {
+    main.innerHTML = '<p class="empty-text">Failed to load seed details.</p>';
+  }
+}
+
+function getUniqueSuppliers() {
+  const suppliers = new Set();
+  for (const s of state.seeds) { if (s.supplier) suppliers.add(s.supplier); }
+  return [...suppliers].sort();
+}
+
+function showAddSeedModal() {
+  const suppliers = getUniqueSuppliers();
+  showModal(`<h2 id="modalTitle">Add Seed</h2><form id="seedForm">
+    <div class="form-group"><label for="sf-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="sf-name" name="name" required aria-required="true" placeholder="e.g., Cherry Tomato"></div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-variety">Variety</label><input class="form-input" id="sf-variety" name="variety" placeholder="e.g., Sweet Million"></div>
+      <div class="form-group"><label for="sf-supplier">Supplier</label><input class="form-input" id="sf-supplier" name="supplier" list="supplierList" placeholder="e.g., Baker Creek" autocomplete="off"><datalist id="supplierList">${suppliers.map(s => `<option value="${esc(s)}">`).join('')}</datalist></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-quantity">Quantity</label><input class="form-input" id="sf-quantity" name="quantity" type="number" min="0" value="1"></div>
+      <div class="form-group"><label for="sf-unit">Unit</label><select class="form-input" id="sf-unit" name="quantity_unit"><option value="packets">Packets</option><option value="seeds">Seeds</option><option value="grams">Grams</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-date">Purchase Date</label><input class="form-input" id="sf-date" name="purchase_date" type="date"></div>
+      <div class="form-group"><label for="sf-price">Price</label><input class="form-input" id="sf-price" name="purchase_price" type="number" step="0.01" min="0" placeholder="0.00"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-germ-rate">Expected Germ. Rate (%)</label><input class="form-input" id="sf-germ-rate" name="expected_germination_rate" type="number" min="0" max="100"></div>
+      <div class="form-group"><label for="sf-germ-days">Days to Germination</label><input class="form-input" id="sf-germ-days" name="days_to_germination" type="number" min="0" max="365"></div>
+    </div>
+    <div class="form-group"><label for="sf-notes">Notes</label><textarea class="form-input" id="sf-notes" name="notes" rows="2"></textarea></div>
+    <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelSeed">Cancel</button><button type="submit" class="btn btn-primary">Add Seed</button></div></form>`);
+  document.getElementById('cancelSeed').addEventListener('click', closeModal);
+  document.getElementById('seedForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await API.createSeed({
+      name: fd.get('name'), variety: fd.get('variety') || null, supplier: fd.get('supplier') || null,
+      purchase_date: fd.get('purchase_date') ? new Date(fd.get('purchase_date')).toISOString() : null,
+      purchase_price: fd.get('purchase_price') ? parseFloat(fd.get('purchase_price')) : null,
+      quantity: parseInt(fd.get('quantity')) || 1, quantity_unit: fd.get('quantity_unit'),
+      expected_germination_rate: fd.get('expected_germination_rate') ? parseInt(fd.get('expected_germination_rate')) : null,
+      days_to_germination: fd.get('days_to_germination') ? parseInt(fd.get('days_to_germination')) : null,
+      notes: fd.get('notes') || null
+    });
+    closeModal();
+    toast('Seed added');
+    state.seeds = await API.getSeeds().catch(() => state.seeds);
+    renderPage();
+  });
+}
+
+function showEditSeedModal(seed) {
+  const purchaseDate = seed.purchase_date ? new Date(seed.purchase_date).toISOString().split('T')[0] : '';
+  const suppliers = getUniqueSuppliers();
+  showModal(`<h2 id="modalTitle">Edit Seed</h2><form id="seedForm">
+    <div class="form-group"><label for="sf-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="sf-name" name="name" value="${esc(seed.name)}" required aria-required="true"></div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-variety">Variety</label><input class="form-input" id="sf-variety" name="variety" value="${esc(seed.variety || '')}"></div>
+      <div class="form-group"><label for="sf-supplier">Supplier</label><input class="form-input" id="sf-supplier" name="supplier" value="${esc(seed.supplier || '')}" list="supplierList" autocomplete="off"><datalist id="supplierList">${suppliers.map(s => `<option value="${esc(s)}">`).join('')}</datalist></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-quantity">Quantity</label><input class="form-input" id="sf-quantity" name="quantity" type="number" min="0" value="${seed.quantity}"></div>
+      <div class="form-group"><label for="sf-unit">Unit</label><select class="form-input" id="sf-unit" name="quantity_unit"><option value="packets" ${seed.quantity_unit === 'packets' ? 'selected' : ''}>Packets</option><option value="seeds" ${seed.quantity_unit === 'seeds' ? 'selected' : ''}>Seeds</option><option value="grams" ${seed.quantity_unit === 'grams' ? 'selected' : ''}>Grams</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-date">Purchase Date</label><input class="form-input" id="sf-date" name="purchase_date" type="date" value="${purchaseDate}"></div>
+      <div class="form-group"><label for="sf-price">Price</label><input class="form-input" id="sf-price" name="purchase_price" type="number" step="0.01" min="0" value="${seed.purchase_price ?? ''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label for="sf-germ-rate">Expected Germ. Rate (%)</label><input class="form-input" id="sf-germ-rate" name="expected_germination_rate" type="number" min="0" max="100" value="${seed.expected_germination_rate ?? ''}"></div>
+      <div class="form-group"><label for="sf-germ-days">Days to Germination</label><input class="form-input" id="sf-germ-days" name="days_to_germination" type="number" min="0" max="365" value="${seed.days_to_germination ?? ''}"></div>
+    </div>
+    <div class="form-group"><label for="sf-notes">Notes</label><textarea class="form-input" id="sf-notes" name="notes" rows="2">${esc(seed.notes || '')}</textarea></div>
+    <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelSeed">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div></form>`);
+  document.getElementById('cancelSeed').addEventListener('click', closeModal);
+  document.getElementById('seedForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await API.updateSeed(seed.id, {
+      name: fd.get('name'), variety: fd.get('variety') || null, supplier: fd.get('supplier') || null,
+      purchase_date: fd.get('purchase_date') ? new Date(fd.get('purchase_date')).toISOString() : null,
+      purchase_price: fd.get('purchase_price') ? parseFloat(fd.get('purchase_price')) : null,
+      quantity: parseInt(fd.get('quantity')) || 1, quantity_unit: fd.get('quantity_unit'),
+      expected_germination_rate: fd.get('expected_germination_rate') ? parseInt(fd.get('expected_germination_rate')) : null,
+      days_to_germination: fd.get('days_to_germination') ? parseInt(fd.get('days_to_germination')) : null,
+      notes: fd.get('notes') || null
+    });
+    closeModal();
+    toast('Seed updated');
+    state.seeds = await API.getSeeds().catch(() => state.seeds);
+    renderPage();
+  });
+}
+
+function getSeedName(seedId) {
+  if (!seedId) return null;
+  const seed = state.seeds.find(s => s.id === seedId);
+  return seed ? seed.name : null;
 }
 
 // ============================================
@@ -1379,10 +1924,6 @@ async function renderSettings(main) {
         </div>
         ${isAdmin ? `
         <div class="settings-item">
-          <div><div class="settings-item-label">App Name</div><div class="settings-item-desc">${esc(settings.app_name || 'CultiVue')}</div></div>
-          <button class="btn btn-secondary btn-sm" type="button" id="editAppNameBtn">Edit</button>
-        </div>
-        <div class="settings-item">
           <div><div class="settings-item-label">Default Units</div><div class="settings-item-desc">${settings.default_units === 'imperial' ? 'Imperial (°F, in)' : 'Metric (°C, cm)'}</div></div>
           <button class="btn btn-secondary btn-sm" type="button" id="editUnitsBtn">Edit</button>
         </div>
@@ -1395,6 +1936,12 @@ async function renderSettings(main) {
       </section>
 
       ${isAdmin ? `
+      <section aria-label="Locations">
+        <h2 class="section-heading">Locations</h2>
+        <div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" type="button" id="createLocationBtn">+ Add Location</button></div>
+        <div id="locationsList"><p class="loading-text">Loading...</p></div>
+      </section>
+
       <section aria-label="Garden types">
         <h2 class="section-heading">Garden Types</h2>
         <div id="settingsGardenTypes"><p class="loading-text">Loading...</p></div>
@@ -1426,7 +1973,7 @@ async function renderSettings(main) {
 
       <section aria-label="About">
         <h2 class="section-heading">About</h2>
-        <div class="settings-item"><div><div class="settings-item-label">${esc(settings.app_name || 'CultiVue')}</div><div class="settings-item-desc">Version 2.0.0 — Garden Management System</div></div></div>
+        <div class="settings-item"><div><div class="settings-item-label">CultiVue</div><div class="settings-item-desc">Version 2.0.0 — Garden Management System</div></div></div>
       </section>
     </div>`;
 
@@ -1456,10 +2003,7 @@ async function renderSettings(main) {
   // Admin sections
   if (isAdmin) {
     document.getElementById('createUserBtn').addEventListener('click', showCreateUserModal);
-    document.getElementById('editAppNameBtn')?.addEventListener('click', () => {
-      const name = prompt('App Name:', settings.app_name || 'CultiVue');
-      if (name) { API.updateSetting('app_name', name).then(() => { toast('App name updated'); renderPage(); }); }
-    });
+    document.getElementById('createLocationBtn').addEventListener('click', showCreateLocationModal);
     document.getElementById('editUnitsBtn')?.addEventListener('click', () => {
       const current = settings.default_units === 'imperial' ? 'imperial' : 'metric';
       const newUnits = current === 'metric' ? 'imperial' : 'metric';
@@ -1468,6 +2012,7 @@ async function renderSettings(main) {
     loadUsersPanel();
     loadAuditPanel();
     loadGardenTypesSettings();
+    loadLocationsPanel();
     loadDevicesPanel();
     loadWebhooksPanel();
     document.getElementById('createDeviceBtn').addEventListener('click', showCreateDeviceModal);
@@ -1551,6 +2096,81 @@ async function loadAuditPanel() {
           <td>${esc(l.entity_type)}</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.details || '')}</td></tr>`;
       }).join('')}</tbody></table>`;
   } catch { /* ignore */ }
+}
+
+// === Locations Panel ===
+async function loadLocationsPanel() {
+  const el = document.getElementById('locationsList');
+  if (!el) return;
+  try {
+    const locations = await API.getLocations();
+    state.locations = locations;
+    if (!locations.length) { el.innerHTML = '<p class="empty-text">No locations yet.</p>'; return; }
+    el.innerHTML = locations.map(l => `
+      <div class="settings-item">
+        <div>
+          <div class="settings-item-label">${esc(l.name)} <span class="badge">${l.garden_count} garden${l.garden_count !== 1 ? 's' : ''}</span></div>
+          ${l.description ? `<div class="settings-item-desc">${esc(l.description)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" type="button" data-edit-location="${l.id}">Edit</button>
+          <button class="btn btn-danger btn-sm" type="button" data-delete-location="${l.id}">Delete</button>
+        </div>
+      </div>`).join('');
+
+    el.querySelectorAll('[data-edit-location]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const loc = locations.find(l => l.id === btn.dataset.editLocation);
+        if (loc) showEditLocationModal(loc);
+      });
+    });
+    el.querySelectorAll('[data-delete-location]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this location? Gardens at this location will keep their data but lose the location assignment.')) return;
+        await API.deleteLocation(btn.dataset.deleteLocation);
+        toast('Location deleted');
+        loadLocationsPanel();
+      });
+    });
+  } catch { el.innerHTML = '<p class="empty-text">Could not load locations.</p>'; }
+}
+
+function showCreateLocationModal() {
+  showModal(`<h2 id="modalTitle">Add Location</h2>
+    <form id="locationForm">
+      <div class="form-group"><label for="loc-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="loc-name" name="name" required maxlength="100" aria-required="true"></div>
+      <div class="form-group"><label for="loc-desc">Description</label><textarea class="form-input" id="loc-desc" name="description" rows="2" maxlength="500"></textarea></div>
+      <div class="form-group"><label for="loc-order">Sort Order</label><input class="form-input" id="loc-order" name="sort_order" type="number" min="0" value="0"></div>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelLoc">Cancel</button><button type="submit" class="btn btn-primary">Add Location</button></div>
+    </form>`);
+  document.getElementById('cancelLoc').addEventListener('click', closeModal);
+  document.getElementById('locationForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await API.createLocation({ name: fd.get('name'), description: fd.get('description') || null, sort_order: parseInt(fd.get('sort_order')) || 0 });
+    closeModal();
+    toast('Location created');
+    loadLocationsPanel();
+  });
+}
+
+function showEditLocationModal(location) {
+  showModal(`<h2 id="modalTitle">Edit Location</h2>
+    <form id="locationForm">
+      <div class="form-group"><label for="loc-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="loc-name" name="name" value="${esc(location.name)}" required maxlength="100" aria-required="true"></div>
+      <div class="form-group"><label for="loc-desc">Description</label><textarea class="form-input" id="loc-desc" name="description" rows="2" maxlength="500">${esc(location.description || '')}</textarea></div>
+      <div class="form-group"><label for="loc-order">Sort Order</label><input class="form-input" id="loc-order" name="sort_order" type="number" min="0" value="${location.sort_order || 0}"></div>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelLoc">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div>
+    </form>`);
+  document.getElementById('cancelLoc').addEventListener('click', closeModal);
+  document.getElementById('locationForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    await API.updateLocation(location.id, { name: fd.get('name'), description: fd.get('description') || null, sort_order: parseInt(fd.get('sort_order')) || 0 });
+    closeModal();
+    toast('Location updated');
+    loadLocationsPanel();
+  });
 }
 
 // === Devices Panel ===
