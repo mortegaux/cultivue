@@ -1,3 +1,5 @@
+[hidden] { display: none !important; }
+
 /* === CSS Variables / Theme === */
 :root, [data-theme="light"] {
   --bg: #f8fafc;
