@@ -34,9 +34,9 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
       connectSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:"],
-      fontSrc: ["'self'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
     }
@@ -642,7 +642,7 @@ app.get('/api/tasks', requireAuth, apiLimiter, (req, res) => {
   const priority = V.enumVal(req.query.priority, V.PRIORITIES);
   const limit = V.int(req.query.limit, 1, 500) || 50;
 
-  let sql = 'SELECT t.*, g.name as garden_name FROM tasks t JOIN gardens g ON t.garden_id = g.id';
+  let sql = 'SELECT t.*, g.name as garden_name, p.name as plant_name FROM tasks t LEFT JOIN gardens g ON t.garden_id = g.id LEFT JOIN plants p ON t.plant_id = p.id';
   const conditions = [];
   const params = [];
 
@@ -656,6 +656,28 @@ app.get('/api/tasks', requireAuth, apiLimiter, (req, res) => {
 
   const tasks = db.prepare(sql).all(...params);
   res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
+});
+
+app.post('/api/tasks', requireAuth, apiLimiter, (req, res) => {
+  const garden_id = req.body.garden_id && V.isUUID(req.body.garden_id) ? req.body.garden_id : null;
+  const plant_id = req.body.plant_id && V.isUUID(req.body.plant_id) ? req.body.plant_id : null;
+  const title = V.reqStr(req.body.title, 200);
+  const description = V.str(req.body.description, 2000);
+  const due_date = V.isoDate(req.body.due_date);
+  const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
+  const is_recurring = req.body.is_recurring ? 1 : 0;
+  const recurring_days = V.int(req.body.recurring_days, 1, 365);
+
+  if (!title || !due_date) {
+    return res.status(400).json({ error: 'Title and due date are required' });
+  }
+
+  const id = uuidv4();
+  db.prepare('INSERT INTO tasks (id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days);
+
+  logAudit(req.user, 'create', 'task', id, `Created task "${title}"`, getClientIP(req));
+  res.status(201).json({ id, garden_id, plant_id, title, description, due_date, priority, is_completed: false, is_recurring: !!is_recurring, recurring_days });
 });
 
 app.post('/api/gardens/:gardenId/tasks', (req, res) => {
@@ -718,8 +740,8 @@ app.patch('/api/tasks/:id/toggle', (req, res) => {
     const nextDue = new Date(task.due_date);
     nextDue.setDate(nextDue.getDate() + task.recurring_days);
     const newId = uuidv4();
-    db.prepare('INSERT INTO tasks (id, garden_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(newId, task.garden_id, task.title, task.description, nextDue.toISOString(), task.priority, 1, task.recurring_days);
+    db.prepare('INSERT INTO tasks (id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(newId, task.garden_id, task.plant_id, task.title, task.description, nextDue.toISOString(), task.priority, 1, task.recurring_days);
   }
 
   logAudit(req.user, 'update', 'task', req.params.id, newCompleted ? `Completed task "${task.title}"` : `Reopened task "${task.title}"`, getClientIP(req));

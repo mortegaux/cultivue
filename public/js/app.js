@@ -97,7 +97,7 @@ function showAuth() {
   screen.innerHTML = `
     <div class="auth-card">
       <div class="brand">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span class="material-symbols-outlined" aria-hidden="true">eco</span>
         <span>CultiVue</span>
       </div>
       <h1 class="auth-heading">Sign in to your account</h1>
@@ -187,7 +187,7 @@ function showSetupWizard() {
     screen.innerHTML = `
       <div class="auth-card auth-card-wide">
         <div class="brand">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <span class="material-symbols-outlined" aria-hidden="true">eco</span>
           <span>CultiVue Setup</span>
         </div>
         <div class="wizard-progress" role="progressbar" aria-valuenow="${wizardStep}" aria-valuemin="1" aria-valuemax="${totalSteps}" aria-label="Setup progress">
@@ -305,7 +305,7 @@ function showChangePassword(forced) {
   screen.innerHTML = `
     <div class="auth-card">
       <div class="brand">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span class="material-symbols-outlined" aria-hidden="true">eco</span>
         <span>CultiVue</span>
       </div>
       <h1 class="auth-heading">${forced ? 'Password Change Required' : 'Change Password'}</h1>
@@ -421,7 +421,7 @@ function getGardenCategory(garden) {
   return 'hydroponic';
 }
 
-const CATEGORY_ICONS = { hydroponic: '💧', soil: '🌍', container: '🪴', aquaponics: '🐟' };
+const CATEGORY_ICONS = { hydroponic: 'water_drop', soil: 'public', container: 'potted_plant', aquaponics: 'phishing' };
 const CATEGORY_COLORS = { hydroponic: 'blue', soil: 'green', container: 'amber', aquaponics: 'purple' };
 
 function renderPage() {
@@ -479,7 +479,7 @@ const SYSTEM_TYPES = {
 const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'other'];
 const GROWTH_STAGES = ['seed', 'germination', 'seedling', 'vegetative', 'flowering', 'fruiting', 'harvest'];
 const STAGE_COLORS = { seed: 'gray', germination: 'purple', seedling: 'blue', vegetative: 'green', flowering: 'amber', fruiting: 'red', harvest: 'green' };
-const PLANT_ICONS = { vegetables: '🥬', fruits: '🍅', herbs: '🌿', cannabis: '🌱', flowers: '🌸', other: '🌾' };
+const PLANT_ICONS = { vegetables: 'nutrition', fruits: 'local_florist', herbs: 'spa', cannabis: 'grass', flowers: 'filter_vintage', other: 'eco' };
 
 // === Tag Select Component ===
 function initTagSelect(containerId, items, opts = {}) {
@@ -614,10 +614,10 @@ async function renderDashboard(main) {
     container.innerHTML = `
       <section aria-label="Overview statistics">
         <div class="grid-4 dash-stats">
-          <div class="card stat-card"><div class="metric-icon green" aria-hidden="true">🌿</div><div><div class="metric-value">${dashStats.total_gardens}</div><div class="metric-label">Gardens</div></div></div>
-          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true">🌱</div><div><div class="metric-value">${dashStats.total_plants}</div><div class="metric-label">Plants</div></div></div>
-          <div class="card stat-card"><div class="metric-icon amber" aria-hidden="true">📋</div><div><div class="metric-value">${dashStats.total_active_tasks}</div><div class="metric-label">Active Tasks</div></div></div>
-          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true">📊</div><div><div class="metric-value">${dashStats.total_logs}</div><div class="metric-label">Log Entries</div></div></div>
+          <div class="card stat-card"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">yard</span></div><div><div class="metric-value">${dashStats.total_gardens}</div><div class="metric-label">Gardens</div></div></div>
+          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${dashStats.total_plants}</div><div class="metric-label">Plants</div></div></div>
+          <div class="card stat-card"><div class="metric-icon amber" aria-hidden="true"><span class="material-symbols-outlined">checklist</span></div><div><div class="metric-value">${dashStats.total_active_tasks}</div><div class="metric-label">Active Tasks</div></div></div>
+          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">monitoring</span></div><div><div class="metric-value">${dashStats.total_logs}</div><div class="metric-label">Log Entries</div></div></div>
         </div>
       </section>
 
@@ -651,16 +651,16 @@ async function renderDashboard(main) {
         const stats = allStats[i];
         const category = getGardenCategory(garden);
         const catColor = CATEGORY_COLORS[category] || 'green';
-        const catIcon = CATEGORY_ICONS[category] || '🌱';
+        const catIcon = CATEGORY_ICONS[category] || 'eco';
         return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
           <div class="garden-card-header">
             <h3>${esc(garden.name)}</h3>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+            <div class="garden-card-badges">
+              <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
               ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
             </div>
           </div>
-          <div class="grid-4" style="gap:12px">
+          <div class="grid-4">
             <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
             <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
             <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
@@ -750,16 +750,16 @@ async function renderGardensPage(main) {
     const stats = allStats[i];
     const category = getGardenCategory(garden);
     const catColor = CATEGORY_COLORS[category] || 'green';
-    const catIcon = CATEGORY_ICONS[category] || '🌱';
+    const catIcon = CATEGORY_ICONS[category] || 'eco';
     return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
       <div class="garden-card-header">
         <h3>${esc(garden.name)}</h3>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+        <div class="garden-card-badges">
+          <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
           ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
         </div>
       </div>
-      <div class="grid-4" style="gap:12px">
+      <div class="grid-4">
         <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
         <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
         <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
@@ -784,7 +784,7 @@ async function renderGardenDetailPage(main, garden) {
   const stats = await API.getStats(garden.id);
   const category = getGardenCategory(garden);
   const catColor = CATEGORY_COLORS[category] || 'green';
-  const catIcon = CATEGORY_ICONS[category] || '🌱';
+  const catIcon = CATEGORY_ICONS[category] || 'eco';
 
   main.innerHTML = `
     <header class="page-header">
@@ -798,7 +798,7 @@ async function renderGardenDetailPage(main, garden) {
       </div>
     </header>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-      <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+      <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
       ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
     </div>
     <div class="garden-detail-stats">
@@ -1163,13 +1163,13 @@ async function renderLocationDetail(main) {
       const stats = allStats[i];
       const category = getGardenCategory(garden);
       const catColor = CATEGORY_COLORS[category] || 'green';
-      const catIcon = CATEGORY_ICONS[category] || '🌱';
+      const catIcon = CATEGORY_ICONS[category] || 'eco';
       return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
         <div class="garden-card-header">
           <h3>${esc(garden.name)}</h3>
-          <span class="badge badge-${catColor}">${catIcon} ${esc(getGardenTypeDisplay(garden))}</span>
+          <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
         </div>
-        <div class="grid-4" style="gap:12px">
+        <div class="grid-4">
           <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
           <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
           <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
@@ -1378,11 +1378,6 @@ async function showAddLogModal(garden) {
 // === TASKS
 // ============================================
 async function renderTasks(main) {
-  if (!state.gardens.length) {
-    main.innerHTML = '<div class="empty-state"><h3>No gardens yet</h3><p>Create a garden from the Dashboard first.</p></div>';
-    return;
-  }
-
   main.innerHTML = `
     <header class="page-header">
       <div><h1>Tasks</h1></div>
@@ -1390,7 +1385,8 @@ async function renderTasks(main) {
     </header>
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
       <select class="form-input" id="tasksGardenFilter" style="width:auto" aria-label="Filter by garden">
-        <option value="">All Gardens</option>
+        <option value="">All</option>
+        <option value="__general__">General (no garden)</option>
         ${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}
       </select>
       <div class="tabs" style="max-width:300px" role="tablist">
@@ -1402,8 +1398,7 @@ async function renderTasks(main) {
   `;
 
   document.getElementById('addTaskBtnGlobal').addEventListener('click', () => {
-    // Default to first garden, or let user pick
-    showAddTaskModal(state.selectedGardenId || state.gardens[0].id);
+    showAddTaskModalGlobal();
   });
 
   let allTasks = [];
@@ -1412,7 +1407,8 @@ async function renderTasks(main) {
 
   function renderFilteredTasks() {
     let filtered = allTasks.filter(t => currentTab === 'active' ? !t.is_completed : t.is_completed);
-    if (gardenFilter) filtered = filtered.filter(t => t.garden_id === gardenFilter);
+    if (gardenFilter === '__general__') filtered = filtered.filter(t => !t.garden_id);
+    else if (gardenFilter) filtered = filtered.filter(t => t.garden_id === gardenFilter);
 
     const el = document.getElementById('globalTasksList');
     if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${currentTab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
@@ -1427,7 +1423,8 @@ async function renderTasks(main) {
             <span><span class="priority-dot priority-${task.priority}" aria-hidden="true"></span>${task.priority}</span>
             <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}</span>
             ${task.is_recurring ? '<span>Recurring</span>' : ''}
-            <span class="badge badge-blue">${esc(task.garden_name)}</span>
+            ${task.garden_name ? `<span class="badge badge-blue">${esc(task.garden_name)}</span>` : '<span class="badge badge-gray">General</span>'}
+            ${task.plant_name ? `<span class="badge badge-green">${esc(task.plant_name)}</span>` : ''}
           </div>
         </div>
         <div class="task-actions">
@@ -1563,6 +1560,80 @@ function showAddTaskModal(gardenId) {
   });
 }
 
+function showAddTaskModalGlobal() {
+  const today = new Date().toISOString().split('T')[0];
+  // Collect all plants across all gardens
+  const allPlants = [];
+  const gardenPlantPromises = state.gardens.map(g => API.getPlants(g.id).then(plants => {
+    plants.forEach(p => allPlants.push({ ...p, _gardenName: g.name }));
+  }));
+
+  showModal(`<h2 id="modalTitle">Add New Task</h2><form id="taskForm">
+    <div class="form-group"><label for="tf-scope">Scope</label>
+      <select class="form-input" id="tf-scope">
+        <option value="general">General (no garden)</option>
+        ${state.gardens.map(g => `<option value="garden:${g.id}">${esc(g.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group" id="tf-plant-group" hidden><label for="tf-plant">Plant (optional)</label>
+      <select class="form-input" id="tf-plant"><option value="">None</option></select>
+    </div>
+    <div class="form-group"><label for="tf-title">Title <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-title" name="title" placeholder="e.g., Water change" required aria-required="true"></div>
+    <div class="form-group"><label for="tf-desc">Description</label><textarea class="form-input" id="tf-desc" name="description" rows="2" placeholder="Details..."></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label for="tf-due">Due Date <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-due" name="due_date" type="date" value="${today}" required aria-required="true"></div>
+      <div class="form-group"><label for="tf-priority">Priority</label><select class="form-input" id="tf-priority" name="priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+    </div>
+    <div class="form-group"><label class="checkbox-label"><input type="checkbox" id="tf-recurring" name="is_recurring"> Recurring task</label></div>
+    <div class="form-group" id="recurringDaysGroup" hidden><label for="tf-days">Repeat every (days)</label><input class="form-input" id="tf-days" name="recurring_days" type="number" min="1" value="7"></div>
+    <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelTask">Cancel</button><button type="submit" class="btn btn-primary">Add Task</button></div></form>`);
+
+  document.getElementById('cancelTask').addEventListener('click', closeModal);
+  document.getElementById('tf-recurring').addEventListener('change', e => {
+    document.getElementById('recurringDaysGroup').hidden = !e.target.checked;
+  });
+
+  const scopeEl = document.getElementById('tf-scope');
+  const plantGroup = document.getElementById('tf-plant-group');
+  const plantEl = document.getElementById('tf-plant');
+
+  // Load plants when a garden is selected
+  Promise.all(gardenPlantPromises).then(() => {
+    scopeEl.addEventListener('change', () => {
+      const val = scopeEl.value;
+      if (val.startsWith('garden:')) {
+        const gid = val.split(':')[1];
+        const gardenPlants = allPlants.filter(p => p.garden_id === gid && p.is_active);
+        plantEl.innerHTML = '<option value="">None</option>' + gardenPlants.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+        plantGroup.hidden = false;
+      } else {
+        plantGroup.hidden = true;
+        plantEl.value = '';
+      }
+    });
+  });
+
+  document.getElementById('taskForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const isRecurring = !!fd.get('is_recurring');
+    const scope = scopeEl.value;
+    const data = {
+      title: fd.get('title'), description: fd.get('description') || null,
+      due_date: new Date(fd.get('due_date')).toISOString(), priority: fd.get('priority'),
+      is_recurring: isRecurring, recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
+    };
+    if (scope.startsWith('garden:')) {
+      data.garden_id = scope.split(':')[1];
+      if (plantEl.value) data.plant_id = plantEl.value;
+    }
+    await API.createTaskGeneral(data);
+    closeModal();
+    toast('Task created');
+    renderPage();
+  });
+}
+
 function showEditTaskModal(task) {
   const dueDate = task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : '';
   showModal(`<h2 id="modalTitle">Edit Task</h2><form id="taskForm">
@@ -1636,7 +1707,7 @@ function renderPlantsGrid(plants, el, showGarden = false) {
     const age = daysAgo(plant.seeded_date || plant.created_at);
     const ageStr = age < 7 ? `${age}d` : age < 30 ? `${Math.floor(age/7)}w` : `${Math.floor(age/30)}mo`;
     return `<button class="card plant-card" type="button" data-plant-id="${plant.id}">
-      <div class="plant-avatar" aria-hidden="true">${PLANT_ICONS[plant.plant_type] || '🌱'}</div>
+      <div class="plant-avatar" aria-hidden="true"><span class="material-symbols-outlined">${PLANT_ICONS[plant.plant_type] || 'eco'}</span></div>
       <div class="plant-info"><h3>${esc(plant.name)}</h3><div class="species">${esc(plant.species)}</div>
         <div class="plant-badges"><span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span><span class="badge badge-gray">${ageStr} old</span>${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}${plant.seed_id && getSeedName(plant.seed_id) ? `<span class="badge badge-green">${esc(getSeedName(plant.seed_id))}</span>` : ''}</div></div>
     </button>`;
@@ -1831,12 +1902,12 @@ async function renderSeeds(main) {
       return `<button class="card garden-card" type="button" data-seed-id="${seed.id}">
         <div class="garden-card-header">
           <h3>${esc(seed.name)}</h3>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div class="garden-card-badges">
             ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
             ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
           </div>
         </div>
-        <div class="grid-4" style="gap:12px">
+        <div class="grid-4">
           <div class="metric-card"><div class="metric-value">${seed.quantity}</div><div class="metric-label">${esc(seed.quantity_unit)}</div></div>
           <div class="metric-card"><div class="metric-value">${seed.plant_count}</div><div class="metric-label">Plants</div></div>
           <div class="metric-card"><div class="metric-value">${rate != null ? rate + '%' : '--'}</div><div class="metric-label">Success</div></div>
@@ -1899,10 +1970,10 @@ async function renderSeedDetail(main) {
           <h2 class="section-heading">Performance Metrics</h2>
           <div class="card">
             <div class="grid-2" style="margin-bottom:16px">
-              <div class="metric-card"><div class="metric-icon green" aria-hidden="true">🌱</div><div><div class="metric-value">${metrics.total_plants}</div><div class="metric-label">Total Plants</div></div></div>
-              <div class="metric-card"><div class="metric-icon blue" aria-hidden="true">✓</div><div><div class="metric-value">${metrics.past_germination}</div><div class="metric-label">Past Germination</div></div></div>
-              <div class="metric-card"><div class="metric-icon ${metrics.germination_rate != null && metrics.germination_rate >= 70 ? 'green' : metrics.germination_rate != null && metrics.germination_rate >= 40 ? 'amber' : 'red'}" aria-hidden="true">%</div><div><div class="metric-value">${metrics.germination_rate != null ? metrics.germination_rate + '%' : '--'}</div><div class="metric-label">Germination Rate</div></div></div>
-              <div class="metric-card"><div class="metric-icon red" aria-hidden="true">✗</div><div><div class="metric-value">${metrics.total_failures}</div><div class="metric-label">Failures</div></div></div>
+              <div class="metric-card"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${metrics.total_plants}</div><div class="metric-label">Total Plants</div></div></div>
+              <div class="metric-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">check_circle</span></div><div><div class="metric-value">${metrics.past_germination}</div><div class="metric-label">Past Germination</div></div></div>
+              <div class="metric-card"><div class="metric-icon ${metrics.germination_rate != null && metrics.germination_rate >= 70 ? 'green' : metrics.germination_rate != null && metrics.germination_rate >= 40 ? 'amber' : 'red'}" aria-hidden="true"><span class="material-symbols-outlined">percent</span></div><div><div class="metric-value">${metrics.germination_rate != null ? metrics.germination_rate + '%' : '--'}</div><div class="metric-label">Germination Rate</div></div></div>
+              <div class="metric-card"><div class="metric-icon red" aria-hidden="true"><span class="material-symbols-outlined">cancel</span></div><div><div class="metric-value">${metrics.total_failures}</div><div class="metric-label">Failures</div></div></div>
             </div>
             ${metrics.failures.length ? `
               <h3 style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px">Failure Breakdown</h3>

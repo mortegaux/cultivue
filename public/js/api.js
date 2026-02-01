@@ -75,6 +75,7 @@ const API = {
   getTasks(gardenId) { return this.request('GET', `/api/gardens/${gardenId}/tasks`); },
   getAllTasks(query = '') { return this.request('GET', `/api/tasks${query ? '?' + query : ''}`); },
   createTask(gardenId, data) { return this.request('POST', `/api/gardens/${gardenId}/tasks`, data); },
+  createTaskGeneral(data) { return this.request('POST', '/api/tasks', data); },
   updateTask(id, data) { return this.request('PUT', `/api/tasks/${id}`, data); },
   toggleTask(id) { return this.request('PATCH', `/api/tasks/${id}/toggle`); },
   deleteTask(id) { return this.request('DELETE', `/api/tasks/${id}`); },

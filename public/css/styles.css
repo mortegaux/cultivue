@@ -100,7 +100,7 @@ input, select, textarea { font: inherit; }
   border-bottom: 1px solid var(--border);
 }
 
-.brand-icon { width: 28px; height: 28px; color: var(--primary); }
+.brand-icon { font-size: 28px; color: var(--primary); }
 .brand-text { font-size: 1.25rem; font-weight: 700; color: var(--text); }
 
 .nav-links { list-style: none; padding: 12px 8px; flex: 1; }
@@ -111,6 +111,7 @@ input, select, textarea { font: inherit; }
   border: none; background: none; text-align: left; min-height: 44px;
 }
 .nav-link svg { width: 20px; height: 20px; flex-shrink: 0; }
+.nav-link .material-symbols-outlined { font-size: 22px; flex-shrink: 0; }
 .nav-link:hover { background: var(--bg-hover); color: var(--text); }
 .nav-link.active { background: var(--primary-light); color: var(--primary); font-weight: 600; }
 
@@ -186,8 +187,13 @@ input, select, textarea { font: inherit; }
 }
 .garden-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 
-.garden-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.garden-card-header h3 { font-size: 1.1rem; font-weight: 600; }
+.garden-card-header { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.garden-card-header h3 { font-size: 1.1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.garden-card-badges { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.garden-card-badges .badge { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.garden-card .garden-health { flex-wrap: wrap; }
+.garden-card .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.garden-card .metric-card { flex-direction: column; gap: 2px; }
 
 /* === Health indicators === */
 .garden-health {
@@ -205,8 +211,9 @@ input, select, textarea { font: inherit; }
 .health-dot.health-bad { background: var(--error); }
 
 /* === Badge === */
+.badge-icon { font-size: 14px; vertical-align: middle; margin-right: 2px; }
 .badge {
-  display: inline-flex; padding: 3px 8px; border-radius: 6px;
+  display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px;
   font-size: 0.75rem; font-weight: 600;
 }
 .badge-green { background: var(--primary-light); color: var(--primary); }
@@ -471,6 +478,7 @@ select.form-input {
   display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 32px;
 }
 .auth-card .brand svg { width: 32px; height: 32px; color: var(--primary); }
+.auth-card .brand .material-symbols-outlined { font-size: 32px; color: var(--primary); }
 .auth-card .brand span { font-size: 1.5rem; font-weight: 700; color: var(--text); }
 .auth-heading {
   text-align: center; margin-bottom: 24px; font-size: 1.1rem;
@@ -570,6 +578,7 @@ select.form-input {
     min-height: 56px;
   }
   .nav-link svg { width: 20px; height: 20px; }
+  .nav-link .material-symbols-outlined { font-size: 22px; }
   .nav-link.active { background: transparent; }
   .main-content { margin-left: 0; padding: 16px 12px 80px; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
