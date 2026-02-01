@@ -6,6 +6,8 @@ const { v4: uuidv4 } = require('uuid');
 const BCRYPT_ROUNDS = 12;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const TOKEN_BYTES = 32;
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -29,13 +31,24 @@ function cleanExpiredSessions() {
 }
 setInterval(cleanExpiredSessions, 60 * 60 * 1000);
 
-// Check if any users exist (for initial setup)
 function hasUsers() {
   const row = db.prepare('SELECT COUNT(*) as count FROM users').get();
   return row.count > 0;
 }
 
-// Setup: create the first admin account (only works when no users exist)
+function validatePasswordStrength(password) {
+  if (!password || typeof password !== 'string' || password.length < 8 || password.length > 128) {
+    return 'Password must be 8-128 characters';
+  }
+  if (!/[a-zA-Z]/.test(password)) {
+    return 'Password must contain at least one letter';
+  }
+  if (!/[0-9]/.test(password)) {
+    return 'Password must contain at least one number';
+  }
+  return null;
+}
+
 async function setupAdmin(username, displayName, password) {
   if (hasUsers()) {
     return { error: 'Setup already completed' };
@@ -43,7 +56,6 @@ async function setupAdmin(username, displayName, password) {
   return createUser(username, displayName, password, true, false);
 }
 
-// Admin: create a new user account with a temporary password
 async function createUser(username, displayName, password, isAdmin = false, mustChangePassword = true) {
   if (!username || typeof username !== 'string' || username.length < 3 || username.length > 30) {
     return { error: 'Username must be 3-30 characters' };
@@ -54,9 +66,9 @@ async function createUser(username, displayName, password, isAdmin = false, must
   if (!displayName || typeof displayName !== 'string' || displayName.length < 1 || displayName.length > 50) {
     return { error: 'Display name must be 1-50 characters' };
   }
-  if (!password || typeof password !== 'string' || password.length < 8 || password.length > 128) {
-    return { error: 'Password must be 8-128 characters' };
-  }
+
+  const pwError = validatePasswordStrength(password);
+  if (pwError) return { error: pwError };
 
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
   if (existing) {
@@ -73,8 +85,7 @@ async function createUser(username, displayName, password, isAdmin = false, must
   return { user: { id, username, display_name: displayName, is_admin: isAdmin } };
 }
 
-// Login
-async function loginUser(username, password) {
+async function loginUser(username, password, ip) {
   if (!username || !password) {
     return { error: 'Username and password are required' };
   }
@@ -85,9 +96,44 @@ async function loginUser(username, password) {
     return { error: 'Invalid username or password' };
   }
 
+  // Check lockout
+  if (user.locked_until) {
+    const lockExpiry = new Date(user.locked_until);
+    if (lockExpiry > new Date()) {
+      const minutesLeft = Math.ceil((lockExpiry.getTime() - Date.now()) / 60000);
+      return { error: `Account locked. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.` };
+    }
+    // Lock expired, reset
+    db.prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?').run(user.id);
+    user.failed_attempts = 0;
+    user.locked_until = null;
+  }
+
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) {
+    const attempts = (user.failed_attempts || 0) + 1;
+    if (attempts >= MAX_FAILED_ATTEMPTS) {
+      const lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
+      db.prepare('UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?').run(attempts, lockUntil, user.id);
+      // Log failed attempt that triggered lockout
+      try {
+        db.prepare("INSERT INTO audit_log (user_id, username, action, entity_type, entity_id, details, ip_address, created_at) VALUES (?, ?, 'login_failed', 'user', ?, ?, ?, ?)")
+          .run(user.id, user.username, user.id, `Account locked after ${attempts} failed attempts`, ip || null, new Date().toISOString());
+      } catch { /* audit log failure shouldn't block auth */ }
+      return { error: 'Account locked due to too many failed attempts. Try again in 15 minutes.' };
+    } else {
+      db.prepare('UPDATE users SET failed_attempts = ? WHERE id = ?').run(attempts, user.id);
+      try {
+        db.prepare("INSERT INTO audit_log (user_id, username, action, entity_type, entity_id, details, ip_address, created_at) VALUES (?, ?, 'login_failed', 'user', ?, ?, ?, ?)")
+          .run(user.id, user.username, user.id, `Failed login attempt ${attempts}/${MAX_FAILED_ATTEMPTS}`, ip || null, new Date().toISOString());
+      } catch { /* audit log failure shouldn't block auth */ }
+    }
     return { error: 'Invalid username or password' };
+  }
+
+  // Successful login — reset failed attempts
+  if (user.failed_attempts > 0) {
+    db.prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?').run(user.id);
   }
 
   const session = createSession(user.id);
@@ -103,16 +149,13 @@ async function loginUser(username, password) {
   };
 }
 
-// Change password
 async function changePassword(userId, currentPassword, newPassword) {
-  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
-    return { error: 'New password must be 8-128 characters' };
-  }
+  const pwError = validatePasswordStrength(newPassword);
+  if (pwError) return { error: pwError };
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) return { error: 'User not found' };
 
-  // If must_change_password, currentPassword can be the temp password
   const valid = await bcrypt.compare(currentPassword, user.password_hash);
   if (!valid) {
     return { error: 'Current password is incorrect' };
@@ -125,7 +168,6 @@ async function changePassword(userId, currentPassword, newPassword) {
   return { success: true };
 }
 
-// Middleware: authenticate request via cookie
 function requireAuth(req, res, next) {
   const token = req.cookies && req.cookies.session;
   if (!token) {
@@ -152,7 +194,6 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Middleware: require admin
 function requireAdmin(req, res, next) {
   if (!req.user || !req.user.is_admin) {
     return res.status(403).json({ error: 'Admin access required' });
@@ -166,26 +207,22 @@ function destroySession(token) {
   db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
 }
 
-// List all users (admin)
 function listUsers() {
   return db.prepare('SELECT id, username, display_name, is_admin, is_active, must_change_password, created_at FROM users ORDER BY created_at ASC').all()
     .map(u => ({ ...u, is_admin: !!u.is_admin, is_active: !!u.is_active, must_change_password: !!u.must_change_password }));
 }
 
-// Admin: deactivate/reactivate user
 function setUserActive(userId, active) {
   db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(active ? 1 : 0, userId);
   if (!active) {
-    // Kill all sessions for deactivated user
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   }
 }
 
-// Admin: reset user password (sets must_change_password)
 async function resetUserPassword(userId, newPassword) {
-  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
-    return { error: 'Password must be 8-128 characters' };
-  }
+  const pwError = validatePasswordStrength(newPassword);
+  if (pwError) return { error: pwError };
+
   const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(hash, userId);
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
@@ -195,5 +232,6 @@ async function resetUserPassword(userId, newPassword) {
 module.exports = {
   hasUsers, setupAdmin, createUser, loginUser, changePassword,
   requireAuth, requireAdmin, destroySession,
-  listUsers, setUserActive, resetUserPassword
+  listUsers, setUserActive, resetUserPassword,
+  validatePasswordStrength
 };

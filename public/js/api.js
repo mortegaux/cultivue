@@ -10,9 +10,25 @@ const API = {
     return res.json();
   },
 
+  async download(url) {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (res.status === 401) { window._handleAuthError && window._handleAuthError(); throw new Error('Unauthorized'); }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'export.csv';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
   // Auth
   authStatus() { return this.request('GET', '/api/auth/status'); },
+  setupStatus() { return this.request('GET', '/api/setup/status'); },
   setup(data) { return this.request('POST', '/api/auth/setup', data); },
+  setupWizard(data) { return this.request('POST', '/api/setup/wizard', data); },
   login(username, password) { return this.request('POST', '/api/auth/login', { username, password }); },
   logout() { return this.request('POST', '/api/auth/logout'); },
   me() { return this.request('GET', '/api/auth/me'); },
@@ -24,6 +40,17 @@ const API = {
   setUserActive(id, is_active) { return this.request('PATCH', `/api/admin/users/${id}/active`, { is_active }); },
   resetUserPassword(id, password) { return this.request('POST', `/api/admin/users/${id}/reset-password`, { password }); },
 
+  // Settings
+  getSettings() { return this.request('GET', '/api/settings'); },
+  updateSetting(key, value, type = 'string') { return this.request('PUT', `/api/settings/${encodeURIComponent(key)}`, { value, type }); },
+
+  // Garden Types
+  getGardenTypes() { return this.request('GET', '/api/garden-types'); },
+  getGardenTypeMetrics(typeId) { return this.request('GET', `/api/garden-types/${encodeURIComponent(typeId)}/metrics`); },
+
+  // Metrics
+  getMetrics() { return this.request('GET', '/api/metrics'); },
+
   // Gardens
   getGardens() { return this.request('GET', '/api/gardens'); },
   createGarden(data) { return this.request('POST', '/api/gardens', data); },
@@ -33,10 +60,12 @@ const API = {
   // Logs
   getLogs(gardenId, limit = 100) { return this.request('GET', `/api/gardens/${gardenId}/logs?limit=${limit}`); },
   createLog(gardenId, data) { return this.request('POST', `/api/gardens/${gardenId}/logs`, data); },
+  updateLog(id, data) { return this.request('PUT', `/api/logs/${id}`, data); },
   deleteLog(id) { return this.request('DELETE', `/api/logs/${id}`); },
 
   // Tasks
   getTasks(gardenId) { return this.request('GET', `/api/gardens/${gardenId}/tasks`); },
+  getAllTasks(query = '') { return this.request('GET', `/api/tasks${query ? '?' + query : ''}`); },
   createTask(gardenId, data) { return this.request('POST', `/api/gardens/${gardenId}/tasks`, data); },
   updateTask(id, data) { return this.request('PUT', `/api/tasks/${id}`, data); },
   toggleTask(id) { return this.request('PATCH', `/api/tasks/${id}/toggle`); },
@@ -50,7 +79,37 @@ const API = {
 
   // Stats
   getStats(gardenId) { return this.request('GET', `/api/gardens/${gardenId}/stats`); },
+  getDashboardStats() { return this.request('GET', '/api/dashboard/stats'); },
 
   // Audit
   getAuditLogs(limit = 50, offset = 0) { return this.request('GET', `/api/audit?limit=${limit}&offset=${offset}`); },
+
+  // Devices
+  getDevices() { return this.request('GET', '/api/devices'); },
+  getDevice(id) { return this.request('GET', `/api/devices/${id}`); },
+  createDevice(data) { return this.request('POST', '/api/devices', data); },
+  updateDevice(id, data) { return this.request('PUT', `/api/devices/${id}`, data); },
+  deleteDevice(id) { return this.request('DELETE', `/api/devices/${id}`); },
+  getDeviceKeys(deviceId) { return this.request('GET', `/api/devices/${deviceId}/keys`); },
+  createDeviceKey(deviceId, label) { return this.request('POST', `/api/devices/${deviceId}/keys`, { label }); },
+  deleteDeviceKey(deviceId, keyId) { return this.request('DELETE', `/api/devices/${deviceId}/keys/${keyId}`); },
+
+  // Sensor Readings
+  getSensorReadings(deviceId, limit = 100, offset = 0, metricId) {
+    let url = `/api/sensor/readings/${deviceId}?limit=${limit}&offset=${offset}`;
+    if (metricId) url += `&metric_id=${encodeURIComponent(metricId)}`;
+    return this.request('GET', url);
+  },
+
+  // Webhooks
+  getWebhooks() { return this.request('GET', '/api/webhooks'); },
+  createWebhook(data) { return this.request('POST', '/api/webhooks', data); },
+  updateWebhook(id, data) { return this.request('PUT', `/api/webhooks/${id}`, data); },
+  deleteWebhook(id) { return this.request('DELETE', `/api/webhooks/${id}`); },
+  getWebhookLogs(id, limit = 50) { return this.request('GET', `/api/webhooks/${id}/logs?limit=${limit}`); },
+  testWebhook(id) { return this.request('POST', `/api/webhooks/${id}/test`); },
+
+  // Export
+  exportLogs(gardenId) { return this.download(`/api/export/logs/${gardenId}`); },
+  exportPlants(gardenId) { return this.download(`/api/export/plants/${gardenId}`); },
 };

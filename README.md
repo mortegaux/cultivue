@@ -1,176 +1,78 @@
-# HydroMate
+# CultiVue
 
-A modern mobile application for managing hydroponic gardens, built with Flutter.
+A garden management web app supporting hydroponic, soil, container, and aquaponics gardens.
 
 ## Features
 
-### Core Functionality
-- **Garden Management**: Create and manage multiple hydroponic gardens
-- **Metrics Tracking**: Log pH levels, PPM/EC, and water temperature
-- **Task Management**: Create, complete, and track recurring tasks
-- **Data Visualization**: Beautiful charts showing trends over time
-- **System Status**: Real-time health monitoring of your hydroponic system
+- **Multi-garden management** with 15+ garden subtypes across 4 categories
+- **Dynamic metrics** — each garden type has relevant metrics (pH, PPM, soil moisture, fish tank parameters, etc.)
+- **Task management** with priorities, recurring tasks, and cross-garden views
+- **Plant tracking** with growth stages and harvest recording
+- **Device & sensor integration** — register devices, generate API keys, ingest sensor readings
+- **Webhook system** — fire events on sensor readings, alerts, task due dates, and harvests with HMAC signing
+- **Dashboard** with health indicators, upcoming tasks, and recent activity
+- **Multi-user auth** with admin-managed accounts, account lockout, and audit logging
+- **OOBE wizard** for first-time setup
+- **WCAG 2.1 AA accessibility** — keyboard navigation, screen reader support, focus management
+- **Dark mode** with accessible contrast ratios
+- **CSV export** for logs and plants
+- **Docker deployment** with persistent data volume
 
-### Supported System Types
-- Deep Water Culture (DWC)
-- Kratky
-- NFT (Nutrient Film Technique)
-- Ebb & Flow
-- Aeroponics
-- Drip System
+## Quick Start
 
-### Plant Types
-- Vegetables
-- Fruits
-- Herbs
-- Cannabis
-- Flowers
-- Other
+### Docker (recommended)
 
-## Technology Stack
-
-- **Framework**: Flutter 3.0+
-- **State Management**: Provider
-- **Local Database**: SQLite (sqflite)
-- **Charts**: fl_chart
-- **Design**: Material 3 with custom theme
-- **Typography**: Google Fonts (Outfit)
-
-## Getting Started
-
-### Prerequisites
-
-- Flutter SDK (3.0 or higher)
-- Android Studio or VS Code with Flutter extensions
-- Android SDK (for Android development)
-- Xcode (for iOS development on macOS)
-
-### Installation
-
-1. Clone or download this repository
-2. Navigate to the project directory:
-   ```bash
-   cd hydro-mate
-   ```
-
-3. Install dependencies:
-   ```bash
-   flutter pub get
-   ```
-
-4. Run the app:
-   ```bash
-   flutter run
-   ```
-
-## Project Structure
-
-```
-lib/
-├── main.dart                 # App entry point
-├── models/                   # Data models
-│   ├── garden.dart
-│   ├── log_entry.dart
-│   └── task.dart
-├── providers/                # State management
-│   ├── garden_provider.dart
-│   ├── log_provider.dart
-│   └── task_provider.dart
-├── screens/                  # UI screens
-│   ├── dashboard_screen.dart
-│   ├── add_log_screen.dart
-│   ├── logs_screen.dart
-│   ├── tasks_screen.dart
-│   ├── settings_screen.dart
-│   └── garden_setup_screen.dart
-├── services/                 # Business logic
-│   └── database_service.dart
-├── theme/                    # Design system
-│   ├── app_colors.dart
-│   └── app_theme.dart
-└── widgets/                  # Reusable widgets
-    ├── metric_card.dart
-    ├── system_status_card.dart
-    └── task_list_item.dart
+```bash
+docker compose up -d
 ```
 
-## Design System
+Access at `http://localhost:8777`. The first-time setup wizard will guide you through creating an admin account and configuring the app.
 
-### Color Palette
-- **Primary**: Emerald Green (#10b981)
-- **Secondary**: Sky Blue (#0ea5e9)
-- **Background**: Slate (#f8fafc)
-- **Dark**: Dark Slate (#0f172a)
+### Manual
 
-### Typography
-- Font Family: Outfit (Sans-serif)
-- Modern, clean, and geometric design
+```bash
+npm install
+npm start
+```
 
-## Features by Screen
+Runs on port 3000 by default. Set `PORT` env variable to change.
 
-### Dashboard
-- Garden overview with greeting
-- System status card with health indicators
-- Quick metrics (pH, PPM, Water Temp, Days Active)
-- Today's tasks list
+## Configuration
 
-### Add Log
-- Input form for pH, PPM, and water temperature
-- Optional notes field
-- Real-time validation
-- Success feedback
+| Environment Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | Server port |
+| `DB_PATH` | `data/cultivue.db` | SQLite database path |
+| `NODE_ENV` | - | Set to `production` for secure cookies |
 
-### Charts & Logs
-- Interactive line charts for pH, PPM, and temperature trends
-- Toggle between different metrics
-- Historical log entries with complete data
-- Refresh to update data
+## Sensor API
 
-### Tasks
-- Active and completed task tabs
-- Add new tasks with priority levels
-- Recurring task support
-- Swipe to delete
-- Task completion tracking
+Devices authenticate with API keys (generated in Settings > Devices).
 
-### Settings
-- Garden selection and management
-- Add new gardens
-- Preferences (temperature units, notifications)
-- App information
+```bash
+curl -X POST http://localhost:3000/api/sensor/readings \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"readings": [{"metric_id": "ph", "value": 6.2}, {"metric_id": "ppm", "value": 1100}]}'
+```
 
-## Database Schema
+Rate limit: 100 requests/minute per key.
 
-### Gardens Table
-- id, userId, name, systemType, plantTypes, startDate, isActive
+## Testing
 
-### Log Entries Table
-- id, gardenId, timestamp, ph, ppm, waterTemp, nutrients, notes, photoPath
+```bash
+npm install
+npm test
+npm run test:coverage
+```
 
-### Tasks Table
-- id, gardenId, title, description, dueDate, isCompleted, completedAt, priority, isRecurring, recurringDays
+## API Documentation
 
-## Optimal Ranges
+See [docs/api.md](docs/api.md) for the complete API reference.
 
-- **pH**: 5.5 - 6.5 (optimal), 5.0 - 7.0 (acceptable)
-- **PPM**: 800 - 1500 (optimal), 600 - 1800 (acceptable)
-- **Water Temperature**: 18°C - 22°C (optimal), 16°C - 24°C (acceptable)
+## Tech Stack
 
-## Future Enhancements
-
-- Firebase authentication and cloud sync
-- Pro tier with unlimited gardens
-- CSV data export
-- Photo upload for harvest journal
-- Push notifications for tasks and alerts
-- Threshold-based alerts
-- Growth stage tracking
-- Nutrient calculator
-
-## License
-
-This project is created for educational purposes.
-
-## Support
-
-For issues or questions, please check the documentation or create an issue in the repository.
+- **Backend:** Node.js, Express, SQLite (better-sqlite3)
+- **Frontend:** Vanilla JS, CSS custom properties, Chart.js
+- **Auth:** bcrypt, session cookies, HMAC API keys
+- **Security:** Helmet CSP, rate limiting, input validation, audit logging

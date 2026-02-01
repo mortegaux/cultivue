@@ -1,0 +1,117 @@
+'use strict';
+
+require('./setup');
+const assert = require('assert');
+const supertest = require('supertest');
+
+let app, request;
+
+before(function () {
+  app = require('../server/index');
+  request = supertest(app);
+});
+
+describe('Auth', function () {
+  const admin = { username: 'admin', display_name: 'Admin', password: 'TestPass1' };
+
+  describe('POST /api/auth/setup', function () {
+    it('should create admin account', async function () {
+      const res = await request.post('/api/auth/setup').send(admin);
+      assert.strictEqual(res.status, 201);
+      assert.ok(res.body.user);
+      assert.strictEqual(res.body.user.username, 'admin');
+      assert.ok(res.headers['set-cookie']);
+    });
+
+    it('should reject duplicate setup', async function () {
+      const res = await request.post('/api/auth/setup').send(admin);
+      assert.strictEqual(res.status, 400);
+    });
+  });
+
+  describe('POST /api/auth/login', function () {
+    it('should login with correct credentials', async function () {
+      const res = await request.post('/api/auth/login').send({ username: 'admin', password: 'TestPass1' });
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.body.user);
+    });
+
+    it('should reject wrong password', async function () {
+      const res = await request.post('/api/auth/login').send({ username: 'admin', password: 'wrong' });
+      assert.strictEqual(res.status, 401);
+    });
+  });
+
+  describe('Account lockout', function () {
+    it('should lock after 5 failed attempts', async function () {
+      // Create a test user to lock out
+      const cookie = await getAdminCookie();
+      await request.post('/api/admin/users')
+        .set('Cookie', cookie)
+        .send({ username: 'locktest', display_name: 'Lock Test', password: 'LockTest1', is_admin: false });
+
+      for (let i = 0; i < 5; i++) {
+        await request.post('/api/auth/login').send({ username: 'locktest', password: 'wrong' });
+      }
+      const res = await request.post('/api/auth/login').send({ username: 'locktest', password: 'LockTest1' });
+      assert.strictEqual(res.status, 401);
+      assert.ok(res.body.error.includes('locked'));
+    });
+  });
+
+  describe('POST /api/auth/change-password', function () {
+    it('should change password', async function () {
+      const cookie = await getAdminCookie();
+      const res = await request.post('/api/auth/change-password')
+        .set('Cookie', cookie)
+        .send({ current_password: 'TestPass1', new_password: 'NewPass99' });
+      assert.strictEqual(res.status, 200);
+
+      // Login with new password
+      const login = await request.post('/api/auth/login').send({ username: 'admin', password: 'NewPass99' });
+      assert.strictEqual(login.status, 200);
+
+      // Reset back for other tests
+      const cookie2 = extractCookie(login);
+      await request.post('/api/auth/change-password')
+        .set('Cookie', cookie2)
+        .send({ current_password: 'NewPass99', new_password: 'TestPass1' });
+    });
+
+    it('should reject weak passwords', async function () {
+      const cookie = await getAdminCookie();
+      const res = await request.post('/api/auth/change-password')
+        .set('Cookie', cookie)
+        .send({ current_password: 'TestPass1', new_password: 'short' });
+      assert.strictEqual(res.status, 400);
+    });
+  });
+
+  describe('GET /api/auth/me', function () {
+    it('should return user info with valid session', async function () {
+      const cookie = await getAdminCookie();
+      const res = await request.get('/api/auth/me').set('Cookie', cookie);
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.body.user);
+    });
+
+    it('should return 401 without session', async function () {
+      const res = await request.get('/api/auth/me');
+      assert.strictEqual(res.status, 401);
+    });
+  });
+});
+
+// Helpers
+function extractCookie(res) {
+  const cookies = res.headers['set-cookie'];
+  if (!cookies) return '';
+  return cookies.map(c => c.split(';')[0]).join('; ');
+}
+
+async function getAdminCookie() {
+  const res = await request.post('/api/auth/login').send({ username: 'admin', password: 'TestPass1' });
+  return extractCookie(res);
+}
+
+module.exports = { getAdminCookie: () => getAdminCookie(), extractCookie };

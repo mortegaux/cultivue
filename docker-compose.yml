@@ -1,11 +1,11 @@
 services:
-  hydromate:
+  cultivue:
     build: .
     ports:
       - "8777:3000"
     volumes:
-      - hydromate-data:/app/data
+      - cultivue-data:/app/data
     restart: unless-stopped
 
 volumes:
-  hydromate-data:
+  cultivue-data:

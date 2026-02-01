@@ -3,6 +3,7 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const db = require('./database');
 const {
   hasUsers, setupAdmin, createUser, loginUser, changePassword,
@@ -10,8 +11,19 @@ const {
   listUsers, setUserActive, resetUserPassword
 } = require('./auth');
 const { logAudit, getAuditLogs } = require('./audit');
+const { getSetting, setSetting, getAllSettings, isSetupCompleted } = require('./settings');
 const V = require('./validate');
 const { v4: uuidv4 } = require('uuid');
+const {
+  listDevices, getDevice, createDevice, updateDevice, deleteDevice,
+  createApiKey, listApiKeys, deleteApiKey, authenticateApiKey,
+  createSensorReading, getSensorReadings,
+} = require('./devices');
+const {
+  VALID_EVENTS,
+  listWebhooks, getWebhook, createWebhook, updateWebhook, deleteWebhook,
+  getWebhookLogs, fireWebhook,
+} = require('./webhooks');
 
 const app = express();
 
@@ -20,9 +32,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-      scriptSrcAttr: ["'unsafe-inline'"],
-      connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+      scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
+      connectSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
       fontSrc: ["'self'"],
@@ -50,7 +61,17 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const sensorLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  message: { error: 'Sensor rate limit exceeded.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.headers['x-api-key'] || req.ip,
+});
+
 // === Middleware ===
+app.use(compression());
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.disable('x-powered-by');
@@ -70,14 +91,68 @@ function sessionCookieOpts(expires) {
   };
 }
 
-// === Auth Routes ===
+// === OOBE Setup Status ===
+app.get('/api/setup/status', (req, res) => {
+  const needsSetup = !hasUsers();
+  const setupCompleted = isSetupCompleted();
+  res.json({ needs_setup: needsSetup, setup_completed: setupCompleted });
+});
 
-// Check if setup is needed (no users yet)
+// === OOBE Setup Wizard ===
+app.post('/api/setup/wizard', authLimiter, async (req, res) => {
+  try {
+    const { admin, settings: wizardSettings, garden_types: enabledTypes } = req.body;
+
+    if (!admin || !admin.username || !admin.password) {
+      return res.status(400).json({ error: 'Admin account details required' });
+    }
+
+    // Step 1: Create admin account (only if no users exist)
+    const username = V.reqStr(admin.username, 30);
+    const display_name = V.reqStr(admin.display_name, 50);
+    if (!username || !display_name) {
+      return res.status(400).json({ error: 'Invalid admin details' });
+    }
+
+    const adminResult = await setupAdmin(username, display_name, admin.password);
+    if (adminResult.error) return res.status(400).json({ error: adminResult.error });
+
+    // Step 2: Save app settings
+    if (wizardSettings) {
+      if (wizardSettings.app_name) setSetting('app_name', V.str(wizardSettings.app_name, 100) || 'CultiVue', 'string');
+      if (wizardSettings.default_units) setSetting('default_units', wizardSettings.default_units === 'imperial' ? 'imperial' : 'metric', 'string');
+      if (wizardSettings.timezone) setSetting('timezone', V.str(wizardSettings.timezone, 100) || 'UTC', 'string');
+    }
+
+    // Step 3: Enable/disable garden types
+    if (Array.isArray(enabledTypes)) {
+      const allTypes = db.prepare('SELECT id FROM garden_types').all().map(r => r.id);
+      for (const typeId of allTypes) {
+        const enabled = enabledTypes.includes(typeId) ? 1 : 0;
+        db.prepare('UPDATE garden_types SET is_enabled = ? WHERE id = ?').run(enabled, typeId);
+      }
+    }
+
+    setSetting('setup_completed', 'true', 'boolean');
+
+    // Auto-login
+    const loginResult = await loginUser(username, admin.password);
+    if (loginResult.error) return res.status(500).json({ error: 'Setup succeeded but login failed' });
+
+    res.cookie('session', loginResult.session.token, sessionCookieOpts(loginResult.session.expires));
+    logAudit(adminResult.user, 'setup', 'user', adminResult.user.id, 'Initial setup completed via wizard', getClientIP(req));
+    res.status(201).json({ user: loginResult.user });
+  } catch (err) {
+    console.error('Setup wizard error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// === Auth Routes ===
 app.get('/api/auth/status', (req, res) => {
   res.json({ needs_setup: !hasUsers() });
 });
 
-// Initial admin setup (only works once, when no users exist)
 app.post('/api/auth/setup', authLimiter, async (req, res) => {
   try {
     const username = V.reqStr(req.body.username, 30);
@@ -91,9 +166,11 @@ app.post('/api/auth/setup', authLimiter, async (req, res) => {
     const result = await setupAdmin(username, display_name, password);
     if (result.error) return res.status(400).json({ error: result.error });
 
-    // Auto-login the new admin
-    const loginResult = await loginUser(username, password);
+    const loginResult = await loginUser(username, password, getClientIP(req));
     if (loginResult.error) return res.status(500).json({ error: 'Setup succeeded but login failed' });
+
+    // Mark setup as completed
+    setSetting('setup_completed', 'true', 'boolean');
 
     res.cookie('session', loginResult.session.token, sessionCookieOpts(loginResult.session.expires));
     logAudit(result.user, 'setup', 'user', result.user.id, 'Initial admin account created', getClientIP(req));
@@ -109,7 +186,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const username = V.str(req.body.username, 30);
     const password = req.body.password;
 
-    const result = await loginUser(username, password);
+    const result = await loginUser(username, password, getClientIP(req));
     if (result.error) return res.status(401).json({ error: result.error });
 
     res.cookie('session', result.session.token, sessionCookieOpts(result.session.expires));
@@ -199,6 +276,46 @@ app.post('/api/admin/users/:id/reset-password', requireAuth, requireAdmin, authL
   }
 });
 
+// === Settings API (admin) ===
+app.get('/api/settings', requireAuth, (req, res) => {
+  res.json(getAllSettings());
+});
+
+app.put('/api/settings/:key', requireAuth, requireAdmin, (req, res) => {
+  const key = V.reqStr(req.params.key, 100);
+  if (!key) return res.status(400).json({ error: 'Invalid key' });
+
+  const protectedKeys = ['setup_completed'];
+  if (protectedKeys.includes(key)) return res.status(403).json({ error: 'Cannot modify this setting' });
+
+  const type = req.body.type || 'string';
+  setSetting(key, req.body.value, type);
+  logAudit(req.user, 'update', 'setting', key, `Updated setting "${key}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+// === Garden Types API ===
+app.get('/api/garden-types', requireAuth, (req, res) => {
+  const types = db.prepare('SELECT * FROM garden_types ORDER BY sort_order ASC').all();
+  res.json(types.map(t => ({ ...t, is_enabled: !!t.is_enabled })));
+});
+
+app.get('/api/garden-types/:id/metrics', requireAuth, (req, res) => {
+  const metrics = db.prepare(`
+    SELECT md.*, gtm.is_required FROM garden_type_metrics gtm
+    JOIN metric_definitions md ON gtm.metric_id = md.id
+    WHERE gtm.garden_type_id = ?
+    ORDER BY md.sort_order ASC
+  `).all(req.params.id);
+  res.json(metrics.map(m => ({ ...m, is_required: !!m.is_required })));
+});
+
+// === Metric Definitions API ===
+app.get('/api/metrics', requireAuth, (req, res) => {
+  const metrics = db.prepare('SELECT * FROM metric_definitions ORDER BY sort_order ASC').all();
+  res.json(metrics);
+});
+
 // === Static files ===
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -212,41 +329,43 @@ app.use('/api/audit', apiLimiter, requireAuth);
 // === Gardens API ===
 app.get('/api/gardens', (req, res) => {
   const gardens = db.prepare('SELECT * FROM gardens ORDER BY start_date DESC').all();
-  res.json(gardens.map(g => ({ ...g, is_active: !!g.is_active, plant_types: g.plant_types.split(',') })));
+  res.json(gardens.map(g => ({ ...g, is_active: !!g.is_active, plant_types: g.plant_types ? g.plant_types.split(',') : [] })));
 });
 
 app.post('/api/gardens', (req, res) => {
   const name = V.reqStr(req.body.name, 100);
-  const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES);
-  const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES);
+  const garden_type_id = V.str(req.body.garden_type_id, 100);
+  const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES) || garden_type_id || 'hydro-dwc';
+  const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES) || ['other'];
   const start_date = V.isoDate(req.body.start_date) || new Date().toISOString();
 
-  if (!name || !system_type || !plant_types) {
-    return res.status(400).json({ error: 'Invalid input: name, system_type, and plant_types are required' });
+  if (!name) {
+    return res.status(400).json({ error: 'Garden name is required' });
   }
 
   const id = uuidv4();
-  db.prepare('INSERT INTO gardens (id, name, system_type, plant_types, start_date) VALUES (?, ?, ?, ?, ?)')
-    .run(id, name, system_type, plant_types.join(','), start_date);
+  db.prepare('INSERT INTO gardens (id, name, system_type, plant_types, start_date, garden_type_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, name, system_type, plant_types.join(','), start_date, garden_type_id || null);
 
   logAudit(req.user, 'create', 'garden', id, `Created garden "${name}"`, getClientIP(req));
-  res.status(201).json({ id, name, system_type, plant_types, start_date, is_active: true });
+  res.status(201).json({ id, name, system_type, plant_types, start_date, is_active: true, garden_type_id });
 });
 
 app.put('/api/gardens/:id', (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const name = V.reqStr(req.body.name, 100);
-  const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES);
-  const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES);
+  const garden_type_id = V.str(req.body.garden_type_id, 100);
+  const system_type = V.enumVal(req.body.system_type, V.SYSTEM_TYPES) || req.body.system_type || '';
+  const plant_types = V.enumArray(req.body.plant_types, V.PLANT_TYPES) || ['other'];
   const is_active = req.body.is_active ? 1 : 0;
 
-  if (!name || !system_type || !plant_types) {
+  if (!name) {
     return res.status(400).json({ error: 'Invalid input' });
   }
 
-  db.prepare('UPDATE gardens SET name=?, system_type=?, plant_types=?, is_active=? WHERE id=?')
-    .run(name, system_type, plant_types.join(','), is_active, req.params.id);
+  db.prepare('UPDATE gardens SET name=?, system_type=?, plant_types=?, is_active=?, garden_type_id=? WHERE id=?')
+    .run(name, system_type, plant_types.join(','), is_active, garden_type_id || null, req.params.id);
 
   logAudit(req.user, 'update', 'garden', req.params.id, `Updated garden "${name}"`, getClientIP(req));
   res.json({ success: true });
@@ -269,7 +388,10 @@ app.get('/api/gardens/:gardenId/logs', (req, res) => {
   const limit = V.int(req.query.limit, 1, 1000) || 100;
   const logs = db.prepare('SELECT * FROM log_entries WHERE garden_id=? ORDER BY timestamp DESC LIMIT ?')
     .all(req.params.gardenId, limit);
-  res.json(logs);
+  res.json(logs.map(l => {
+    if (l.metric_data) { try { l.metric_data = JSON.parse(l.metric_data); } catch { l.metric_data = null; } }
+    return l;
+  }));
 });
 
 app.post('/api/gardens/:gardenId/logs', (req, res) => {
@@ -281,13 +403,42 @@ app.post('/api/gardens/:gardenId/logs', (req, res) => {
   const nutrients = V.str(req.body.nutrients, 500);
   const notes = V.str(req.body.notes, 2000);
 
+  // Build metric_data from either explicit metric_data or legacy fields
+  let metricData = req.body.metric_data || {};
+  if (typeof metricData === 'string') { try { metricData = JSON.parse(metricData); } catch { metricData = {}; } }
+  // Merge legacy fields into metric_data
+  if (ph != null && metricData.ph == null) metricData.ph = ph;
+  if (ppm != null && metricData.ppm == null) metricData.ppm = ppm;
+  if (water_temp != null && metricData.water_temp == null) metricData.water_temp = water_temp;
+
   const id = uuidv4();
   const timestamp = new Date().toISOString();
-  db.prepare('INSERT INTO log_entries (id, garden_id, timestamp, ph, ppm, water_temp, nutrients, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.gardenId, timestamp, ph, ppm, water_temp, nutrients, notes);
+  db.prepare('INSERT INTO log_entries (id, garden_id, timestamp, ph, ppm, water_temp, nutrients, notes, metric_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.gardenId, timestamp, ph, ppm, water_temp, nutrients, notes, Object.keys(metricData).length > 0 ? JSON.stringify(metricData) : null);
 
   logAudit(req.user, 'create', 'log_entry', id, `pH:${ph ?? '-'} PPM:${ppm ?? '-'} Temp:${water_temp ?? '-'}`, getClientIP(req));
-  res.status(201).json({ id, garden_id: req.params.gardenId, timestamp, ph, ppm, water_temp, nutrients, notes });
+  res.status(201).json({ id, garden_id: req.params.gardenId, timestamp, ph, ppm, water_temp, nutrients, notes, metric_data: metricData });
+});
+
+app.put('/api/logs/:id', requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const existing = db.prepare('SELECT * FROM log_entries WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+
+  const ph = V.num(req.body.ph, 0, 14);
+  const ppm = V.int(req.body.ppm, 0, 100000);
+  const water_temp = V.num(req.body.water_temp, -10, 60);
+  const nutrients = V.str(req.body.nutrients, 500);
+  const notes = V.str(req.body.notes, 2000);
+  let metricData = req.body.metric_data || {};
+  if (typeof metricData === 'string') { try { metricData = JSON.parse(metricData); } catch { metricData = {}; } }
+
+  db.prepare('UPDATE log_entries SET ph=?, ppm=?, water_temp=?, nutrients=?, notes=?, metric_data=? WHERE id=?')
+    .run(ph, ppm, water_temp, nutrients, notes, Object.keys(metricData).length > 0 ? JSON.stringify(metricData) : null, req.params.id);
+
+  logAudit(req.user, 'update', 'log_entry', req.params.id, `Updated log entry`, getClientIP(req));
+  res.json({ success: true });
 });
 
 app.delete('/api/logs/:id', (req, res) => {
@@ -304,6 +455,27 @@ app.get('/api/gardens/:gardenId/tasks', (req, res) => {
 
   const tasks = db.prepare('SELECT * FROM tasks WHERE garden_id=? ORDER BY due_date ASC')
     .all(req.params.gardenId);
+  res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
+});
+
+app.get('/api/tasks', requireAuth, apiLimiter, (req, res) => {
+  const status = req.query.status;
+  const priority = V.enumVal(req.query.priority, V.PRIORITIES);
+  const limit = V.int(req.query.limit, 1, 500) || 50;
+
+  let sql = 'SELECT t.*, g.name as garden_name FROM tasks t JOIN gardens g ON t.garden_id = g.id';
+  const conditions = [];
+  const params = [];
+
+  if (status === 'active') { conditions.push('t.is_completed = 0'); }
+  else if (status === 'completed') { conditions.push('t.is_completed = 1'); }
+  if (priority) { conditions.push('t.priority = ?'); params.push(priority); }
+
+  if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+  sql += ' ORDER BY t.due_date ASC LIMIT ?';
+  params.push(limit);
+
+  const tasks = db.prepare(sql).all(...params);
   res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
 });
 
@@ -465,11 +637,44 @@ app.get('/api/gardens/:gardenId/stats', requireAuth, apiLimiter, (req, res) => {
   const activeTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE garden_id=? AND is_completed=0').get(gardenId);
   const latestLog = db.prepare('SELECT * FROM log_entries WHERE garden_id=? ORDER BY timestamp DESC LIMIT 1').get(gardenId);
   const totalLogs = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE garden_id=?').get(gardenId);
+
+  if (latestLog && latestLog.metric_data) {
+    try { latestLog.metric_data = JSON.parse(latestLog.metric_data); } catch { latestLog.metric_data = null; }
+  }
+
   res.json({
     active_plants: activePlants.count,
     active_tasks: activeTasks.count,
     total_logs: totalLogs.count,
     latest_log: latestLog || null
+  });
+});
+
+// === Dashboard Stats API ===
+app.get('/api/dashboard/stats', requireAuth, apiLimiter, (req, res) => {
+  const totalPlants = db.prepare('SELECT COUNT(*) as count FROM plants WHERE is_active=1').get();
+  const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE is_completed=0').get();
+  const totalLogs = db.prepare('SELECT COUNT(*) as count FROM log_entries').get();
+  const totalGardens = db.prepare('SELECT COUNT(*) as count FROM gardens WHERE is_active=1').get();
+
+  const upcomingTasks = db.prepare(`
+    SELECT t.*, g.name as garden_name FROM tasks t
+    JOIN gardens g ON t.garden_id = g.id
+    WHERE t.is_completed = 0 AND t.due_date <= datetime('now', '+7 days')
+    ORDER BY t.due_date ASC LIMIT 10
+  `).all().map(t => ({ ...t, is_completed: false, is_recurring: !!t.is_recurring }));
+
+  const recentActivity = db.prepare(`
+    SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 10
+  `).all();
+
+  res.json({
+    total_plants: totalPlants.count,
+    total_active_tasks: totalTasks.count,
+    total_logs: totalLogs.count,
+    total_gardens: totalGardens.count,
+    upcoming_tasks: upcomingTasks,
+    recent_activity: recentActivity,
   });
 });
 
@@ -481,12 +686,252 @@ app.get('/api/audit', (req, res) => {
   res.json(logs);
 });
 
+// === CSV Export ===
+app.get('/api/export/logs/:gardenId', requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const logs = db.prepare('SELECT * FROM log_entries WHERE garden_id=? ORDER BY timestamp DESC').all(req.params.gardenId);
+  const garden = db.prepare('SELECT name FROM gardens WHERE id=?').get(req.params.gardenId);
+
+  const headers = ['Date', 'pH', 'PPM', 'Water Temp', 'Nutrients', 'Notes'];
+  const rows = logs.map(l => [
+    l.timestamp,
+    l.ph ?? '',
+    l.ppm ?? '',
+    l.water_temp ?? '',
+    `"${(l.nutrients || '').replace(/"/g, '""')}"`,
+    `"${(l.notes || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${(garden?.name || 'logs').replace(/[^a-zA-Z0-9]/g, '_')}_logs.csv"`);
+  res.send(csv);
+});
+
+app.get('/api/export/plants/:gardenId', requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const plants = db.prepare('SELECT * FROM plants WHERE garden_id=? ORDER BY created_at DESC').all(req.params.gardenId);
+  const garden = db.prepare('SELECT name FROM gardens WHERE id=?').get(req.params.gardenId);
+
+  const headers = ['Name', 'Type', 'Species', 'Stage', 'Seeded', 'Transplanted', 'Harvest Date', 'Yield', 'Active', 'Notes'];
+  const rows = plants.map(p => [
+    `"${(p.name || '').replace(/"/g, '""')}"`,
+    p.plant_type,
+    `"${(p.species || '').replace(/"/g, '""')}"`,
+    p.current_stage,
+    p.seeded_date || '',
+    p.transplanted_date || '',
+    p.harvest_date || '',
+    p.yield_amount ?? '',
+    p.is_active ? 'Yes' : 'No',
+    `"${(p.notes || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${(garden?.name || 'plants').replace(/[^a-zA-Z0-9]/g, '_')}_plants.csv"`);
+  res.send(csv);
+});
+
+// === Devices API (admin) ===
+app.get('/api/devices', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  res.json(listDevices());
+});
+
+app.post('/api/devices', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  const name = V.reqStr(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: 'Device name is required' });
+
+  const gardenId = req.body.garden_id && V.isUUID(req.body.garden_id) ? req.body.garden_id : null;
+  const deviceType = V.enumVal(req.body.device_type, ['sensor', 'controller', 'gateway']) || 'sensor';
+  const description = V.str(req.body.description, 500);
+
+  const device = createDevice(name, gardenId, deviceType, description);
+  logAudit(req.user, 'create', 'device', device.id, `Created device "${name}"`, getClientIP(req));
+  res.status(201).json(device);
+});
+
+app.get('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const device = getDevice(req.params.id);
+  if (!device) return res.status(404).json({ error: 'Not found' });
+  res.json(device);
+});
+
+app.put('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const name = V.reqStr(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: 'Device name is required' });
+
+  const gardenId = req.body.garden_id && V.isUUID(req.body.garden_id) ? req.body.garden_id : null;
+  const deviceType = V.enumVal(req.body.device_type, ['sensor', 'controller', 'gateway']) || 'sensor';
+  const description = V.str(req.body.description, 500);
+  const isActive = req.body.is_active !== false;
+
+  updateDevice(req.params.id, name, gardenId, deviceType, description, isActive);
+  logAudit(req.user, 'update', 'device', req.params.id, `Updated device "${name}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.delete('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const device = getDevice(req.params.id);
+  deleteDevice(req.params.id);
+  logAudit(req.user, 'delete', 'device', req.params.id, `Deleted device "${device?.name || 'unknown'}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+// === Device API Keys ===
+app.get('/api/devices/:id/keys', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  res.json(listApiKeys(req.params.id));
+});
+
+app.post('/api/devices/:id/keys', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const device = getDevice(req.params.id);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+
+  const label = V.str(req.body.label, 100) || 'default';
+  const key = createApiKey(req.params.id, label);
+  logAudit(req.user, 'create', 'api_key', key.id, `Created API key for device "${device.name}"`, getClientIP(req));
+  res.status(201).json(key);
+});
+
+app.delete('/api/devices/:id/keys/:keyId', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id) || !V.isUUID(req.params.keyId)) return res.status(400).json({ error: 'Invalid ID' });
+  deleteApiKey(req.params.keyId);
+  logAudit(req.user, 'delete', 'api_key', req.params.keyId, `Deleted API key`, getClientIP(req));
+  res.json({ success: true });
+});
+
+// === Sensor Data Ingestion (API-key authenticated) ===
+app.post('/api/sensor/readings', sensorLimiter, (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  const auth = authenticateApiKey(apiKey);
+  if (!auth) return res.status(401).json({ error: 'Invalid or inactive API key' });
+
+  const readings = Array.isArray(req.body.readings) ? req.body.readings : (req.body.metric_id ? [req.body] : []);
+  if (readings.length === 0) return res.status(400).json({ error: 'No readings provided' });
+  if (readings.length > 100) return res.status(400).json({ error: 'Max 100 readings per batch' });
+
+  const results = [];
+  for (const r of readings) {
+    const metricId = V.reqStr(r.metric_id, 100);
+    const value = V.num(r.value, -1e9, 1e9);
+    const recordedAt = V.isoDate(r.recorded_at);
+    if (!metricId || value == null) continue;
+
+    const reading = createSensorReading(auth.device_id, metricId, value, recordedAt);
+    results.push(reading);
+  }
+
+  // Fire webhook asynchronously
+  if (results.length > 0) {
+    fireWebhook('sensor_reading', { device_id: auth.device_id, device_name: auth.device_name, readings: results }).catch(() => {});
+  }
+
+  res.status(201).json({ accepted: results.length, readings: results });
+});
+
+app.get('/api/sensor/readings/:deviceId', requireAuth, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.deviceId)) return res.status(400).json({ error: 'Invalid ID' });
+  const limit = V.int(req.query.limit, 1, 1000) || 100;
+  const offset = V.int(req.query.offset, 0, 100000) || 0;
+  const metricId = V.str(req.query.metric_id, 100);
+  res.json(getSensorReadings(req.params.deviceId, limit, offset, metricId));
+});
+
+// === Webhooks API (admin) ===
+app.get('/api/webhooks', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  res.json(listWebhooks());
+});
+
+app.post('/api/webhooks', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  const name = V.reqStr(req.body.name, 100);
+  const url = V.reqStr(req.body.url, 2000);
+  if (!name || !url) return res.status(400).json({ error: 'Name and URL are required' });
+
+  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+
+  const secret = V.str(req.body.secret, 200);
+  const events = Array.isArray(req.body.events) ? req.body.events : [];
+  const retryCount = V.int(req.body.retry_count, 0, 10) || 3;
+
+  const webhook = createWebhook(name, url, secret, events, retryCount);
+  logAudit(req.user, 'create', 'webhook', webhook.id, `Created webhook "${name}"`, getClientIP(req));
+  res.status(201).json(webhook);
+});
+
+app.put('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const name = V.reqStr(req.body.name, 100);
+  const url = V.reqStr(req.body.url, 2000);
+  if (!name || !url) return res.status(400).json({ error: 'Invalid input' });
+
+  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+
+  const secret = V.str(req.body.secret, 200);
+  const events = Array.isArray(req.body.events) ? req.body.events : [];
+  const isActive = req.body.is_active !== false;
+  const retryCount = V.int(req.body.retry_count, 0, 10) || 3;
+
+  updateWebhook(req.params.id, name, url, secret, events, isActive, retryCount);
+  logAudit(req.user, 'update', 'webhook', req.params.id, `Updated webhook "${name}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.delete('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const wh = getWebhook(req.params.id);
+  deleteWebhook(req.params.id);
+  logAudit(req.user, 'delete', 'webhook', req.params.id, `Deleted webhook "${wh?.name || 'unknown'}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.get('/api/webhooks/:id/logs', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const limit = V.int(req.query.limit, 1, 500) || 50;
+  res.json(getWebhookLogs(req.params.id, limit));
+});
+
+app.post('/api/webhooks/:id/test', requireAuth, requireAdmin, apiLimiter, async (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const wh = getWebhook(req.params.id);
+  if (!wh) return res.status(404).json({ error: 'Not found' });
+
+  const testPayload = { event: 'test', webhook_id: wh.id, timestamp: new Date().toISOString(), message: 'Test webhook from CultiVue' };
+
+  try {
+    const headers = { 'Content-Type': 'application/json', 'X-Webhook-Event': 'test' };
+    if (wh.secret) {
+      const crypto = require('crypto');
+      const sig = crypto.createHmac('sha256', wh.secret).update(JSON.stringify(testPayload)).digest('hex');
+      headers['X-Webhook-Signature'] = `sha256=${sig}`;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(wh.url, { method: 'POST', headers, body: JSON.stringify(testPayload), signal: controller.signal });
+    clearTimeout(timeout);
+    const body = await response.text().catch(() => '');
+    res.json({ success: response.ok, status: response.status, body: body.slice(0, 500) });
+  } catch (err) {
+    res.json({ success: false, status: 0, body: err.message });
+  }
+});
+
 // SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`HydroMate running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`CultiVue running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
