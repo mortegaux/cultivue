@@ -66,7 +66,14 @@ const API = {
   deleteGarden(id) { return this.request('DELETE', `/api/gardens/${id}`); },
 
   // Logs
-  getLogs(gardenId, limit = 100) { return this.request('GET', `/api/gardens/${gardenId}/logs?limit=${limit}`); },
+  getLogs(gardenId, { limit, from, to } = {}) {
+    const p = new URLSearchParams();
+    if (limit) p.set('limit', limit);
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
+    const qs = p.toString();
+    return this.request('GET', `/api/gardens/${gardenId}/logs${qs ? '?' + qs : ''}`);
+  },
   createLog(gardenId, data) { return this.request('POST', `/api/gardens/${gardenId}/logs`, data); },
   updateLog(id, data) { return this.request('PUT', `/api/logs/${id}`, data); },
   deleteLog(id) { return this.request('DELETE', `/api/logs/${id}`); },

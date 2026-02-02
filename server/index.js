@@ -57,7 +57,7 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 120,
+  max: 600,
   message: { error: 'Rate limit exceeded.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -324,14 +324,14 @@ app.get('/api/metrics', requireAuth, (req, res) => {
 // === Static files ===
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) {
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
       res.setHeader('Cache-Control', 'no-cache');
     }
   }
 }));
 
 // === Locations API ===
-app.get('/api/locations', apiLimiter, requireAuth, (req, res) => {
+app.get('/api/locations', requireAuth, (req, res) => {
   const locations = db.prepare(`
     SELECT l.*, COUNT(g.id) as garden_count
     FROM locations l
@@ -342,7 +342,7 @@ app.get('/api/locations', apiLimiter, requireAuth, (req, res) => {
   res.json(locations);
 });
 
-app.post('/api/locations', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.post('/api/locations', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const description = V.str(req.body.description, 500);
   const sort_order = V.int(req.body.sort_order, 0, 10000) || 0;
@@ -358,7 +358,7 @@ app.post('/api/locations', apiLimiter, requireAuth, requireAdmin, (req, res) => 
   res.status(201).json({ id, name, description, sort_order, created_at: now, updated_at: now, garden_count: 0 });
 });
 
-app.put('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.put('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const name = V.reqStr(req.body.name, 100);
@@ -375,7 +375,7 @@ app.put('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, res) 
   res.json({ success: true });
 });
 
-app.delete('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const location = db.prepare('SELECT name FROM locations WHERE id=?').get(req.params.id);
@@ -385,7 +385,7 @@ app.delete('/api/locations/:id', apiLimiter, requireAuth, requireAdmin, (req, re
   res.json({ success: true });
 });
 
-app.get('/api/locations/:id/gardens', apiLimiter, requireAuth, (req, res) => {
+app.get('/api/locations/:id/gardens', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const gardens = db.prepare('SELECT * FROM gardens WHERE location_id=? ORDER BY start_date DESC').all(req.params.id);
@@ -393,7 +393,7 @@ app.get('/api/locations/:id/gardens', apiLimiter, requireAuth, (req, res) => {
 });
 
 // === Seeds API ===
-app.get('/api/seeds', apiLimiter, requireAuth, (req, res) => {
+app.get('/api/seeds', requireAuth, (req, res) => {
   const seeds = db.prepare(`
     SELECT s.*,
       COUNT(DISTINCT p.id) as plant_count,
@@ -407,14 +407,14 @@ app.get('/api/seeds', apiLimiter, requireAuth, (req, res) => {
   res.json(seeds);
 });
 
-app.get('/api/seeds/:id', apiLimiter, requireAuth, (req, res) => {
+app.get('/api/seeds/:id', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const seed = db.prepare('SELECT * FROM seeds WHERE id=?').get(req.params.id);
   if (!seed) return res.status(404).json({ error: 'Not found' });
   res.json(seed);
 });
 
-app.post('/api/seeds', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.post('/api/seeds', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Seed name is required' });
 
@@ -438,7 +438,7 @@ app.post('/api/seeds', apiLimiter, requireAuth, requireAdmin, (req, res) => {
   res.status(201).json({ id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at: now, updated_at: now });
 });
 
-app.put('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.put('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Invalid input' });
@@ -461,7 +461,7 @@ app.put('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const seed = db.prepare('SELECT name FROM seeds WHERE id=?').get(req.params.id);
   db.prepare('DELETE FROM seeds WHERE id=?').run(req.params.id);
@@ -469,7 +469,7 @@ app.delete('/api/seeds/:id', apiLimiter, requireAuth, requireAdmin, (req, res) =
   res.json({ success: true });
 });
 
-app.get('/api/seeds/:id/metrics', apiLimiter, requireAuth, (req, res) => {
+app.get('/api/seeds/:id/metrics', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const totalPlants = db.prepare('SELECT COUNT(*) as count FROM plants WHERE seed_id=?').get(req.params.id).count;
@@ -482,7 +482,7 @@ app.get('/api/seeds/:id/metrics', apiLimiter, requireAuth, (req, res) => {
 });
 
 // === Plant Failure Route ===
-app.post('/api/plants/:id/fail', apiLimiter, requireAuth, (req, res) => {
+app.post('/api/plants/:id/fail', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const plant = db.prepare('SELECT * FROM plants WHERE id=?').get(req.params.id);
@@ -505,11 +505,11 @@ app.post('/api/plants/:id/fail', apiLimiter, requireAuth, (req, res) => {
 });
 
 // === All data API routes require authentication ===
-app.use('/api/gardens', apiLimiter, requireAuth);
-app.use('/api/logs', apiLimiter, requireAuth);
-app.use('/api/tasks', apiLimiter, requireAuth);
-app.use('/api/plants', apiLimiter, requireAuth);
-app.use('/api/audit', apiLimiter, requireAuth);
+app.use('/api/gardens', requireAuth);
+app.use('/api/logs', requireAuth);
+app.use('/api/tasks', requireAuth);
+app.use('/api/plants', requireAuth);
+app.use('/api/audit', requireAuth);
 
 // === Gardens API ===
 app.get('/api/gardens', (req, res) => {
@@ -572,9 +572,18 @@ app.delete('/api/gardens/:id', (req, res) => {
 app.get('/api/gardens/:gardenId/logs', (req, res) => {
   if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
 
-  const limit = V.int(req.query.limit, 1, 1000) || 100;
-  const logs = db.prepare('SELECT * FROM log_entries WHERE garden_id=? ORDER BY timestamp DESC LIMIT ?')
-    .all(req.params.gardenId, limit);
+  const limit = V.int(req.query.limit, 1, 5000) || 1000;
+  const from = req.query.from || null;
+  const to = req.query.to || null;
+
+  let sql = 'SELECT * FROM log_entries WHERE garden_id=?';
+  const params = [req.params.gardenId];
+  if (from) { sql += ' AND timestamp >= ?'; params.push(new Date(from).toISOString()); }
+  if (to) { sql += ' AND timestamp <= ?'; params.push(new Date(to + 'T23:59:59').toISOString()); }
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  params.push(limit);
+
+  const logs = db.prepare(sql).all(...params);
   res.json(logs.map(l => {
     if (l.metric_data) { try { l.metric_data = JSON.parse(l.metric_data); } catch { l.metric_data = null; } }
     return l;
@@ -645,11 +654,9 @@ app.get('/api/gardens/:gardenId/tasks', (req, res) => {
   res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
 });
 
-app.get('/api/tasks', requireAuth, apiLimiter, (req, res) => {
+app.get('/api/tasks', requireAuth, (req, res) => {
   const status = req.query.status;
   const priority = V.enumVal(req.query.priority, V.PRIORITIES);
-  const limit = V.int(req.query.limit, 1, 500) || 50;
-
   let sql = 'SELECT t.*, g.name as garden_name, p.name as plant_name FROM tasks t LEFT JOIN gardens g ON t.garden_id = g.id LEFT JOIN plants p ON t.plant_id = p.id';
   const conditions = [];
   const params = [];
@@ -659,14 +666,13 @@ app.get('/api/tasks', requireAuth, apiLimiter, (req, res) => {
   if (priority) { conditions.push('t.priority = ?'); params.push(priority); }
 
   if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ' ORDER BY t.due_date ASC LIMIT ?';
-  params.push(limit);
+  sql += ' ORDER BY t.due_date ASC';
 
   const tasks = db.prepare(sql).all(...params);
   res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
 });
 
-app.post('/api/tasks', requireAuth, apiLimiter, (req, res) => {
+app.post('/api/tasks', requireAuth, (req, res) => {
   const garden_id = req.body.garden_id && V.isUUID(req.body.garden_id) ? req.body.garden_id : null;
   const plant_id = req.body.plant_id && V.isUUID(req.body.plant_id) ? req.body.plant_id : null;
   const title = V.reqStr(req.body.title, 200);
@@ -840,7 +846,7 @@ app.delete('/api/plants/:id', (req, res) => {
 });
 
 // === Stats API ===
-app.get('/api/gardens/:gardenId/stats', requireAuth, apiLimiter, (req, res) => {
+app.get('/api/gardens/:gardenId/stats', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
 
   const gardenId = req.params.gardenId;
@@ -862,7 +868,7 @@ app.get('/api/gardens/:gardenId/stats', requireAuth, apiLimiter, (req, res) => {
 });
 
 // === Dashboard Stats API ===
-app.get('/api/dashboard/stats', requireAuth, apiLimiter, (req, res) => {
+app.get('/api/dashboard/stats', requireAuth, (req, res) => {
   const totalPlants = db.prepare('SELECT COUNT(*) as count FROM plants WHERE is_active=1').get();
   const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE is_completed=0').get();
   const totalLogs = db.prepare('SELECT COUNT(*) as count FROM log_entries').get();
@@ -947,11 +953,11 @@ app.get('/api/export/plants/:gardenId', requireAuth, (req, res) => {
 });
 
 // === Devices API (admin) ===
-app.get('/api/devices', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.get('/api/devices', requireAuth, requireAdmin, (req, res) => {
   res.json(listDevices());
 });
 
-app.post('/api/devices', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.post('/api/devices', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Device name is required' });
 
@@ -964,14 +970,14 @@ app.post('/api/devices', requireAuth, requireAdmin, apiLimiter, (req, res) => {
   res.status(201).json(device);
 });
 
-app.get('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.get('/api/devices/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const device = getDevice(req.params.id);
   if (!device) return res.status(404).json({ error: 'Not found' });
   res.json(device);
 });
 
-app.put('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.put('/api/devices/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Device name is required' });
@@ -986,7 +992,7 @@ app.put('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) =>
   res.json({ success: true });
 });
 
-app.delete('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.delete('/api/devices/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const device = getDevice(req.params.id);
   deleteDevice(req.params.id);
@@ -995,12 +1001,12 @@ app.delete('/api/devices/:id', requireAuth, requireAdmin, apiLimiter, (req, res)
 });
 
 // === Device API Keys ===
-app.get('/api/devices/:id/keys', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.get('/api/devices/:id/keys', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   res.json(listApiKeys(req.params.id));
 });
 
-app.post('/api/devices/:id/keys', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.post('/api/devices/:id/keys', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const device = getDevice(req.params.id);
   if (!device) return res.status(404).json({ error: 'Device not found' });
@@ -1011,7 +1017,7 @@ app.post('/api/devices/:id/keys', requireAuth, requireAdmin, apiLimiter, (req, r
   res.status(201).json(key);
 });
 
-app.delete('/api/devices/:id/keys/:keyId', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.delete('/api/devices/:id/keys/:keyId', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id) || !V.isUUID(req.params.keyId)) return res.status(400).json({ error: 'Invalid ID' });
   deleteApiKey(req.params.keyId);
   logAudit(req.user, 'delete', 'api_key', req.params.keyId, `Deleted API key`, getClientIP(req));
@@ -1047,7 +1053,7 @@ app.post('/api/sensor/readings', sensorLimiter, (req, res) => {
   res.status(201).json({ accepted: results.length, readings: results });
 });
 
-app.get('/api/sensor/readings/:deviceId', requireAuth, apiLimiter, (req, res) => {
+app.get('/api/sensor/readings/:deviceId', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.deviceId)) return res.status(400).json({ error: 'Invalid ID' });
   const limit = V.int(req.query.limit, 1, 1000) || 100;
   const offset = V.int(req.query.offset, 0, 100000) || 0;
@@ -1056,11 +1062,11 @@ app.get('/api/sensor/readings/:deviceId', requireAuth, apiLimiter, (req, res) =>
 });
 
 // === Webhooks API (admin) ===
-app.get('/api/webhooks', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.get('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   res.json(listWebhooks());
 });
 
-app.post('/api/webhooks', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.post('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
   if (!name || !url) return res.status(400).json({ error: 'Name and URL are required' });
@@ -1076,7 +1082,7 @@ app.post('/api/webhooks', requireAuth, requireAdmin, apiLimiter, (req, res) => {
   res.status(201).json(webhook);
 });
 
-app.put('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.put('/api/webhooks/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
@@ -1094,7 +1100,7 @@ app.put('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res) =
   res.json({ success: true });
 });
 
-app.delete('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.delete('/api/webhooks/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const wh = getWebhook(req.params.id);
   deleteWebhook(req.params.id);
@@ -1102,13 +1108,13 @@ app.delete('/api/webhooks/:id', requireAuth, requireAdmin, apiLimiter, (req, res
   res.json({ success: true });
 });
 
-app.get('/api/webhooks/:id/logs', requireAuth, requireAdmin, apiLimiter, (req, res) => {
+app.get('/api/webhooks/:id/logs', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const limit = V.int(req.query.limit, 1, 500) || 50;
   res.json(getWebhookLogs(req.params.id, limit));
 });
 
-app.post('/api/webhooks/:id/test', requireAuth, requireAdmin, apiLimiter, async (req, res) => {
+app.post('/api/webhooks/:id/test', requireAuth, requireAdmin, async (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const wh = getWebhook(req.params.id);
   if (!wh) return res.status(404).json({ error: 'Not found' });

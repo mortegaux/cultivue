@@ -83,7 +83,12 @@ async function enterApp() {
       state.selectedGardenId = state.gardens[0].id;
     }
   } catch { /* continue with empty data */ }
-  renderPage();
+  window.addEventListener('hashchange', routeFromHash);
+  if (location.hash && location.hash !== '#/') {
+    routeFromHash();
+  } else {
+    location.hash = '#/dashboard';
+  }
 }
 
 // ============================================
@@ -372,14 +377,37 @@ function setupNav() {
 function navigateTo(page, data) {
   state.currentPage = page;
   if (data) Object.assign(state, data);
+  // Build hash URL
+  let hash = '#/' + page;
+  if (page === 'garden-detail' && state.selectedGardenId) hash += '/' + state.selectedGardenId;
+  else if (page === 'location-detail' && state._selectedLocationId) hash += '/' + state._selectedLocationId;
+  else if (page === 'seed-detail' && state._selectedSeedId) hash += '/' + state._selectedSeedId;
+  if (location.hash !== hash) history.pushState(null, '', hash);
+  updateNavHighlight(page);
+  renderPage();
+  announce(`Navigated to ${page.replace('-', ' ')}`);
+}
+
+function updateNavHighlight(page) {
   document.querySelectorAll('.nav-link').forEach(l => {
     const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens') || (page === 'location-detail' && l.dataset.page === 'locations') || (page === 'seed-detail' && l.dataset.page === 'seeds');
     l.classList.toggle('active', isActive);
     if (isActive) l.setAttribute('aria-current', 'page');
     else l.removeAttribute('aria-current');
   });
+}
+
+function routeFromHash() {
+  const hash = location.hash || '#/dashboard';
+  const parts = hash.replace('#/', '').split('/');
+  const page = parts[0] || 'dashboard';
+  const id = parts[1] || null;
+  if (page === 'garden-detail' && id) state.selectedGardenId = id;
+  else if (page === 'location-detail' && id) state._selectedLocationId = id;
+  else if (page === 'seed-detail' && id) state._selectedSeedId = id;
+  state.currentPage = page;
+  updateNavHighlight(page);
   renderPage();
-  announce(`Navigated to ${page.replace('-', ' ')}`);
 }
 
 function renderUserBadge() {
@@ -623,21 +651,20 @@ async function renderDashboard(main) {
         </div>
       </section>
 
+      <section aria-label="Gardens" style="margin-top:24px">
+        <div class="section-header"><h2 class="section-heading" style="margin:0">My Gardens</h2><a class="link-btn" href="#/gardens">View all</a></div>
+        <div id="dashGardenGrid"></div>
+      </section>
+
       <div class="content-split" style="margin-top:24px">
-        <section aria-label="Gardens">
-          <h2 class="section-heading">My Gardens</h2>
-          <div id="dashGardenGrid"></div>
+        <section aria-label="Upcoming tasks">
+          <h2 class="section-heading">Upcoming Tasks</h2>
+          <div id="dashUpcomingTasks"></div>
         </section>
-        <div>
-          <section aria-label="Upcoming tasks">
-            <h2 class="section-heading">Upcoming Tasks</h2>
-            <div id="dashUpcomingTasks"></div>
-          </section>
-          <section aria-label="Recent activity" style="margin-top:24px">
-            <h2 class="section-heading">Recent Activity</h2>
-            <div id="dashRecentActivity"></div>
-          </section>
-        </div>
+        <section aria-label="Recent activity">
+          <h2 class="section-heading">Recent Activity</h2>
+          <div id="dashRecentActivity"></div>
+        </section>
       </div>
     `;
 
@@ -648,31 +675,25 @@ async function renderDashboard(main) {
         <button class="btn btn-primary" type="button" style="margin-top:16px" id="emptyNewGarden">Create Garden</button></div>`;
       document.getElementById('emptyNewGarden')?.addEventListener('click', showCreateGardenModal);
     } else {
-      const allStats = await Promise.all(state.gardens.map(g => API.getStats(g.id)));
-      grid.innerHTML = `<div class="grid-2 dash-garden-scroll">${state.gardens.map((garden, i) => {
+      const displayGardens = state.gardens.slice(0, 6);
+      const allStats = await Promise.all(displayGardens.map(g => API.getStats(g.id)));
+      grid.innerHTML = `<div class="card" style="padding:0"><table class="dash-garden-table"><tbody>${displayGardens.map((garden, i) => {
         const stats = allStats[i];
         const category = getGardenCategory(garden);
         const catColor = CATEGORY_COLORS[category] || 'green';
         const catIcon = CATEGORY_ICONS[category] || 'eco';
-        return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
-          <div class="garden-card-header">
-            <h3>${esc(garden.name)}</h3>
-            <div class="garden-card-badges">
-              <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
-              ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
-            </div>
-          </div>
-          <div class="grid-4">
-            <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
-            <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
-            <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
-            <div class="metric-card"><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div>
-          </div>
-          ${renderGardenHealthBar(stats, garden)}
-        </button>`;
-      }).join('')}</div>`;
-      grid.querySelectorAll('.garden-card').forEach(card => {
-        card.addEventListener('click', () => viewGardenDetail(card.dataset.gardenId));
+        const iconColor = catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary';
+        return `<tr class="dash-garden-row" data-garden-id="${garden.id}">
+          <td class="dgr-name"><span class="material-symbols-outlined" style="color:var(--${iconColor});font-size:20px;vertical-align:middle">${catIcon}</span> ${esc(garden.name)}</td>
+          <td class="dgr-badges"><span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>${garden.location_name ? ` <span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}</td>
+          <td class="dgr-stat">${stats.active_plants} <span class="dgr-label">plants</span></td>
+          <td class="dgr-stat">${stats.total_logs} <span class="dgr-label">logs</span></td>
+          <td class="dgr-stat">${stats.active_tasks} <span class="dgr-label">tasks</span></td>
+          <td class="dgr-health">${renderGardenHealthBar(stats, garden)}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+      grid.querySelectorAll('.dash-garden-row').forEach(row => {
+        row.addEventListener('click', () => viewGardenDetail(row.dataset.gardenId));
       });
     }
 
@@ -748,29 +769,28 @@ async function renderGardensPage(main) {
     return;
   }
   const allStats = await Promise.all(state.gardens.map(g => API.getStats(g.id)));
-  el.innerHTML = `<div class="grid-2">${state.gardens.map((garden, i) => {
+  el.innerHTML = `<div class="card" style="padding:0">${state.gardens.map((garden, i) => {
     const stats = allStats[i];
     const category = getGardenCategory(garden);
     const catColor = CATEGORY_COLORS[category] || 'green';
     const catIcon = CATEGORY_ICONS[category] || 'eco';
-    return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
-      <div class="garden-card-header">
-        <h3>${esc(garden.name)}</h3>
-        <div class="garden-card-badges">
-          <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
-          ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
-        </div>
-      </div>
-      <div class="grid-4">
-        <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
-        <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
-        <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
-        <div class="metric-card"><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div>
-      </div>
-      ${renderGardenHealthBar(stats, garden)}
+    return `<button class="garden-row" type="button" data-garden-id="${garden.id}">
+      <span class="material-symbols-outlined garden-row-icon" style="color:var(--${catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary'})">${catIcon}</span>
+      <span class="garden-row-name">${esc(garden.name)}</span>
+      <span class="garden-row-badges">
+        <span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>
+        ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+      </span>
+      <span class="garden-row-metrics">
+        <span>${stats.active_plants} Plants</span>
+        <span>${stats.total_logs} Logs</span>
+        <span>${stats.active_tasks} Tasks</span>
+        <span>${daysAgo(garden.start_date)}d</span>
+        ${renderGardenHealthBar(stats, garden)}
+      </span>
     </button>`;
   }).join('')}</div>`;
-  el.querySelectorAll('.garden-card').forEach(card => {
+  el.querySelectorAll('.garden-row').forEach(card => {
     card.addEventListener('click', () => viewGardenDetail(card.dataset.gardenId));
   });
 }
@@ -1097,7 +1117,7 @@ async function deleteGarden(id) {
   if (state.selectedGardenId === id) state.selectedGardenId = null;
   toast('Garden deleted');
   await loadGardens();
-  navigateTo('gardens');
+  renderPage();
 }
 
 // ============================================
@@ -1119,13 +1139,16 @@ async function renderLocationsPage(main) {
     el.innerHTML = `<div class="empty-state"><h3>No locations yet</h3><p>Add a location to organize your gardens.</p></div>`;
     return;
   }
-  el.innerHTML = `<div class="grid-2">${state.locations.map(loc => `
-    <button class="card garden-card" type="button" data-location-id="${loc.id}">
-      <div class="garden-card-header">
-        <h3>${esc(loc.name)}</h3>
+  el.innerHTML = `<div class="card" style="padding:0">${state.locations.map(loc => `
+    <button class="garden-row" type="button" data-location-id="${loc.id}">
+      <span class="material-symbols-outlined garden-row-icon" style="color:var(--secondary)">location_on</span>
+      <span class="garden-row-name">${esc(loc.name)}</span>
+      <span class="garden-row-badges">
         <span class="badge badge-blue">${loc.garden_count} garden${loc.garden_count !== 1 ? 's' : ''}</span>
-      </div>
-      ${loc.description ? `<p class="secondary-text" style="margin:8px 0 0">${esc(loc.description)}</p>` : ''}
+      </span>
+      <span class="garden-row-metrics">
+        ${loc.description ? `<span>${esc(loc.description)}</span>` : ''}
+      </span>
     </button>
   `).join('')}</div>`;
   el.querySelectorAll('[data-location-id]').forEach(card => {
@@ -1198,24 +1221,83 @@ async function renderLogs(main) {
   }
   const selectedId = state.selectedGardenId || state.gardens[0].id;
   const garden = state.gardens.find(g => g.id === selectedId) || state.gardens[0];
+  const category = getGardenCategory(garden);
+  const catColor = CATEGORY_COLORS[category] || 'green';
+  const catIcon = CATEGORY_ICONS[category] || 'eco';
+  const iconColor = catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary';
+
+  // Default date range: last 30 days
+  const today = new Date().toISOString().split('T')[0];
+  const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+  const dateFrom = state._logsDateFrom || thirtyAgo;
+  const dateTo = state._logsDateTo || today;
 
   main.innerHTML = `
     <header class="page-header">
       <div><h1>Logs</h1></div>
       <div style="display:flex;gap:8px;align-items:center">
-        <select class="form-input" id="logsGardenSelect" style="width:auto" aria-label="Select garden">
-          ${state.gardens.map(g => `<option value="${g.id}" ${g.id === garden.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
-        </select>
         <button class="btn btn-secondary btn-sm" type="button" id="exportLogsBtn">Export CSV</button>
         <button class="btn btn-primary" type="button" id="addLogBtn">+ Add Log</button>
       </div>
     </header>
+
+    <div class="card logs-garden-header">
+      <div class="logs-garden-info">
+        <span class="material-symbols-outlined" style="font-size:28px;color:var(--${iconColor})">${catIcon}</span>
+        <div>
+          <select class="logs-garden-select" id="logsGardenSelect" aria-label="Select garden">
+            ${state.gardens.map(g => `<option value="${g.id}" ${g.id === garden.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+          </select>
+          <div class="logs-garden-meta">
+            <span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>
+            ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+            <span class="secondary-text">${daysAgo(garden.start_date)} days old</span>
+          </div>
+        </div>
+      </div>
+      <div class="logs-date-range">
+        <label class="logs-date-label">From</label>
+        <input type="date" class="form-input" id="logsDateFrom" value="${dateFrom}" style="width:auto">
+        <label class="logs-date-label">To</label>
+        <input type="date" class="form-input" id="logsDateTo" value="${dateTo}" style="width:auto">
+        <div class="logs-range-presets">
+          <button class="btn btn-secondary btn-sm" type="button" data-range="7">7d</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-range="30">30d</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-range="90">90d</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-range="all">All</button>
+        </div>
+      </div>
+    </div>
+
     <div id="logsContent"><p class="loading-text">Loading...</p></div>
   `;
 
   document.getElementById('logsGardenSelect').addEventListener('change', e => {
     state.selectedGardenId = e.target.value;
+    state._logsDateFrom = document.getElementById('logsDateFrom').value;
+    state._logsDateTo = document.getElementById('logsDateTo').value;
     renderLogs(main);
+  });
+
+  function reloadWithDates() {
+    state._logsDateFrom = document.getElementById('logsDateFrom').value;
+    state._logsDateTo = document.getElementById('logsDateTo').value;
+    loadLogsForGarden(garden);
+  }
+  document.getElementById('logsDateFrom').addEventListener('change', reloadWithDates);
+  document.getElementById('logsDateTo').addEventListener('change', reloadWithDates);
+
+  document.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const range = btn.dataset.range;
+      const toDate = new Date().toISOString().split('T')[0];
+      let fromDate;
+      if (range === 'all') { fromDate = garden.start_date.split('T')[0]; }
+      else { fromDate = new Date(Date.now() - parseInt(range) * 86400000).toISOString().split('T')[0]; }
+      document.getElementById('logsDateFrom').value = fromDate;
+      document.getElementById('logsDateTo').value = toDate;
+      reloadWithDates();
+    });
   });
 
   async function loadLogsForGarden(g) {
@@ -1223,16 +1305,18 @@ async function renderLogs(main) {
     document.getElementById('exportLogsBtn').addEventListener('click', () => API.exportLogs(g.id));
 
     const container = document.getElementById('logsContent');
-    const logs = await API.getLogs(g.id);
+    const from = document.getElementById('logsDateFrom').value;
+    const to = document.getElementById('logsDateTo').value;
+    const logs = await API.getLogs(g.id, { from, to });
     const availableMetrics = await getAvailableMetrics(g);
 
     container.innerHTML = `
-      <div class="content-split"><div>
-        <div class="metric-tabs" role="tablist" aria-label="Metric selector" id="metricTabs"></div>
-        <div class="card"><div class="chart-container"><canvas id="logsChart"></canvas></div></div></div>
-        <div><div class="card" style="padding:0">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><h3>Recent Logs</h3><span id="logCount" class="secondary-text">${logs.length} entries</span></div>
-          <div id="logsList" style="padding:0 20px;max-height:400px;overflow-y:auto"></div></div></div></div>`;
+      <div class="metric-tabs" role="tablist" aria-label="Metric selector" id="metricTabs"></div>
+      <div class="card" style="margin-bottom:24px"><div class="chart-container"><canvas id="logsChart"></canvas></div></div>
+      <div class="card" style="padding:0">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><h3>Log Entries</h3><span id="logCount" class="secondary-text">${logs.length} entries</span></div>
+        <div id="logsList" style="padding:0 20px;max-height:500px;overflow-y:auto"></div>
+      </div>`;
 
     const tabsEl = document.getElementById('metricTabs');
     const defaultMetric = availableMetrics[0]?.id || 'ph';
@@ -1264,7 +1348,7 @@ function renderLogsChart(logs, metric, availableMetrics) {
   const valid = logs.filter(l => {
     const md = l.metric_data || {};
     return md[metric] != null || (metric === 'ph' && l.ph != null) || (metric === 'ppm' && l.ppm != null) || (metric === 'water_temp' && l.water_temp != null);
-  }).slice(0, 30).reverse();
+  }).reverse();
 
   const getData = l => {
     const md = l.metric_data || {};
@@ -1415,7 +1499,7 @@ async function renderTasks(main) {
     const el = document.getElementById('globalTasksList');
     if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${currentTab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
 
-    el.innerHTML = filtered.map(task => {
+    el.innerHTML = `<div class="card" style="padding:0">${filtered.map(task => {
       const isOverdue = !task.is_completed && new Date(task.due_date) < new Date();
       return `<div class="task-item">
         <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
@@ -1434,7 +1518,7 @@ async function renderTasks(main) {
           <button class="btn-icon btn-sm" type="button" data-delete-task="${task.id}" aria-label="Delete task" title="Delete">&#x1F5D1;</button>
         </div>
       </div>`;
-    }).join('');
+    }).join('')}</div>`;
 
     el.querySelectorAll('[data-toggle-id]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -1705,16 +1789,22 @@ async function renderPlants(main) {
 
 function renderPlantsGrid(plants, el, showGarden = false) {
   if (!plants.length) { el.innerHTML = '<div class="empty-state"><h3>No plants yet</h3><p>Add plants from within a garden.</p></div>'; return; }
-  el.innerHTML = `<div class="grid-2">${plants.map(plant => {
+  el.innerHTML = `<div class="card" style="padding:0">${plants.map(plant => {
     const age = daysAgo(plant.seeded_date || plant.created_at);
     const ageStr = age < 7 ? `${age}d` : age < 30 ? `${Math.floor(age/7)}w` : `${Math.floor(age/30)}mo`;
-    return `<button class="card plant-card" type="button" data-plant-id="${plant.id}">
-      <div class="plant-avatar" aria-hidden="true"><span class="material-symbols-outlined">${PLANT_ICONS[plant.plant_type] || 'eco'}</span></div>
-      <div class="plant-info"><h3>${esc(plant.name)}</h3><div class="species">${esc(plant.species)}</div>
-        <div class="plant-badges"><span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span><span class="badge badge-gray">${ageStr} old</span>${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}${plant.seed_id && getSeedName(plant.seed_id) ? `<span class="badge badge-green">${esc(getSeedName(plant.seed_id))}</span>` : ''}</div></div>
+    return `<button class="garden-row" type="button" data-plant-id="${plant.id}">
+      <span class="material-symbols-outlined garden-row-icon">${PLANT_ICONS[plant.plant_type] || 'eco'}</span>
+      <span class="garden-row-name">${esc(plant.name)}</span>
+      <span class="garden-row-badges">
+        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
+        <span class="badge badge-gray">${ageStr}</span>
+        ${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}
+        ${plant.seed_id && getSeedName(plant.seed_id) ? `<span class="badge badge-green">${esc(getSeedName(plant.seed_id))}</span>` : ''}
+      </span>
+      <span class="garden-row-metrics"><span>${esc(plant.species)}</span></span>
     </button>`;
   }).join('')}</div>`;
-  el.querySelectorAll('.plant-card').forEach(card => {
+  el.querySelectorAll('[data-plant-id]').forEach(card => {
     card.addEventListener('click', () => showPlantDetail(card.dataset.plantId));
   });
 }
@@ -1899,22 +1989,21 @@ async function renderSeeds(main) {
       el.innerHTML = '<div class="empty-state"><h3>No seeds yet</h3><p>Add seeds to track your inventory and performance.</p></div>';
       return;
     }
-    el.innerHTML = `<div class="grid-2">${state.seeds.map(seed => {
+    el.innerHTML = `<div class="card" style="padding:0">${state.seeds.map(seed => {
       const rate = seed.plant_count > 0 ? Math.round(((seed.plant_count - seed.failure_count) / seed.plant_count) * 100) : null;
-      return `<button class="card garden-card" type="button" data-seed-id="${seed.id}">
-        <div class="garden-card-header">
-          <h3>${esc(seed.name)}</h3>
-          <div class="garden-card-badges">
-            ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
-            ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
-          </div>
-        </div>
-        <div class="grid-4">
-          <div class="metric-card"><div class="metric-value">${seed.quantity}</div><div class="metric-label">${esc(seed.quantity_unit)}</div></div>
-          <div class="metric-card"><div class="metric-value">${seed.plant_count}</div><div class="metric-label">Plants</div></div>
-          <div class="metric-card"><div class="metric-value">${rate != null ? rate + '%' : '--'}</div><div class="metric-label">Success</div></div>
-          <div class="metric-card"><div class="metric-value">${seed.days_to_germination ?? '--'}</div><div class="metric-label">Days to Germ.</div></div>
-        </div>
+      return `<button class="garden-row" type="button" data-seed-id="${seed.id}">
+        <span class="material-symbols-outlined garden-row-icon">grass</span>
+        <span class="garden-row-name">${esc(seed.name)}</span>
+        <span class="garden-row-badges">
+          ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
+          ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
+        </span>
+        <span class="garden-row-metrics">
+          <span>${seed.quantity} ${esc(seed.quantity_unit)}</span>
+          <span>${seed.plant_count} Plants</span>
+          <span>${rate != null ? rate + '% Success' : ''}</span>
+          <span>${seed.days_to_germination != null ? seed.days_to_germination + 'd germ.' : ''}</span>
+        </span>
       </button>`;
     }).join('')}</div>`;
     el.querySelectorAll('[data-seed-id]').forEach(card => {

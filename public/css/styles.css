@@ -203,6 +203,34 @@ input, select, textarea { font: inherit; }
 .metric-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
 .metric-label { font-size: 0.8rem; color: var(--text-tertiary); }
 
+/* === Section header with action link === */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-header .link-btn { font-size: 0.85rem; color: var(--primary); text-decoration: none; }
+.section-header .link-btn:hover { text-decoration: underline; }
+
+/* === Dashboard garden table === */
+.dash-garden-table { width: 100%; border-collapse: collapse; }
+.dash-garden-row { cursor: pointer; transition: background 0.1s; }
+.dash-garden-row:hover { background: var(--bg-hover); }
+.dash-garden-row td { padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+.dash-garden-row:last-child td { border-bottom: none; }
+.dgr-name { font-weight: 600; font-size: 0.95rem; min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.dgr-badges { }
+.dgr-stat { font-size: 0.85rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.dgr-label { color: var(--text-tertiary); }
+.dgr-health { font-size: 0.85rem; }
+.dgr-health .garden-health { display: inline-flex; gap: 8px; }
+
+/* === Compact Garden Row (list pages) === */
+.garden-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: none; background: none; width: 100%; text-align: left; cursor: pointer; border-bottom: 1px solid var(--border); font: inherit; color: var(--text); }
+.garden-row:last-child { border-bottom: none; }
+.garden-row:hover { background: var(--bg-hover); }
+.garden-row-icon { font-size: 20px; flex-shrink: 0; }
+.garden-row-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 180px; }
+.garden-row-badges { display: flex; gap: 6px; flex-shrink: 0; }
+.garden-row-metrics { display: flex; gap: 12px; font-size: 0.85rem; color: var(--text-secondary); margin-left: auto; flex-shrink: 0; align-items: center; }
+.garden-row-metrics .garden-health { display: inline-flex; gap: 6px; font-size: 0.85rem; }
+
 /* === Garden Card === */
 .garden-card {
   cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; gap: 12px;
@@ -258,6 +286,15 @@ input, select, textarea { font: inherit; }
   text-align: center; min-height: 44px;
 }
 .tab.active { background: var(--bg-card); color: var(--primary); box-shadow: var(--shadow); font-weight: 600; }
+
+/* === Logs Page Header === */
+.logs-garden-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+.logs-garden-info { display: flex; align-items: center; gap: 12px; }
+.logs-garden-select { font-size: 1.15rem; font-weight: 700; background: none; border: none; color: var(--text); cursor: pointer; padding: 0; appearance: auto; font-family: inherit; }
+.logs-garden-meta { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.logs-date-range { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.logs-date-label { font-size: 0.8rem; color: var(--text-tertiary); font-weight: 500; }
+.logs-range-presets { display: flex; gap: 4px; }
 
 /* === Metric Tabs === */
 .metric-tabs {
@@ -635,6 +672,15 @@ select.form-input {
   .dash-garden-scroll { display: flex; gap: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; scroll-snap-type: x mandatory; }
   .dash-garden-scroll > .garden-card { flex: 0 0 260px; scroll-snap-align: start; }
   .dash-garden-scroll > .garden-card .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+
+  /* Dashboard garden table: hide less important columns on mobile */
+  .dgr-stat, .dgr-health { display: none; }
+  .dgr-name { max-width: 160px; }
+
+  /* Compact garden rows: wrap to 2 lines on mobile */
+  .garden-row { flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
+  .garden-row-metrics { margin-left: 0; width: 100%; padding-left: 32px; }
+  .garden-row-name { max-width: 140px; }
 
   /* Content split stacks on mobile */
   .content-split { grid-template-columns: 1fr; gap: 16px; }
