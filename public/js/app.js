@@ -390,8 +390,10 @@ function renderUserBadge() {
     <div class="user-badge">
       <div class="user-avatar" aria-hidden="true">${esc(initials)}</div>
       <span class="user-badge-name">${esc(state.user.display_name)}</span>
+      <button class="btn-icon user-logout-btn" type="button" id="sidebarLogout" title="Sign out" aria-label="Sign out"><span class="material-symbols-outlined">logout</span></button>
     </div>
   `;
+  document.getElementById('sidebarLogout').addEventListener('click', doLogout);
 }
 
 async function loadGardens() {
@@ -647,7 +649,7 @@ async function renderDashboard(main) {
       document.getElementById('emptyNewGarden')?.addEventListener('click', showCreateGardenModal);
     } else {
       const allStats = await Promise.all(state.gardens.map(g => API.getStats(g.id)));
-      grid.innerHTML = `<div class="grid-2">${state.gardens.map((garden, i) => {
+      grid.innerHTML = `<div class="grid-2 dash-garden-scroll">${state.gardens.map((garden, i) => {
         const stats = allStats[i];
         const category = getGardenCategory(garden);
         const catColor = CATEGORY_COLORS[category] || 'green';

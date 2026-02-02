@@ -1,7 +1,28 @@
 {
   "permissions": {
     "allow": [
-      "Bash(flutter --version:*)"
+      "Bash(flutter --version:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(docker compose:*)",
+      "Bash(curl:*)",
+      "Bash(start:*)",
+      "Bash(findstr:*)",
+      "Bash(git -C C:Usersmiketprojectshydromate status)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git push)",
+      "Bash(node:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(ipconfig:*)",
+      "Bash(netsh advfirewall firewall show rule:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(gh pr list:*)"
     ],
     "deny": [],
     "ask": []

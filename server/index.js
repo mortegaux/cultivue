@@ -32,16 +32,18 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
+      scriptSrc: ["'self'"],
       connectSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
-    }
+    },
+    useDefaults: false,
   },
   crossOriginEmbedderPolicy: false,
+  hsts: false,
 }));
 
 // === Rate Limiting ===
@@ -84,8 +86,8 @@ function getClientIP(req) {
 function sessionCookieOpts(expires) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: process.env.COOKIE_SECURE === 'true',
+    sameSite: 'lax',
     path: '/',
     expires,
   };
@@ -320,7 +322,13 @@ app.get('/api/metrics', requireAuth, (req, res) => {
 });
 
 // === Static files ===
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 // === Locations API ===
 app.get('/api/locations', apiLimiter, requireAuth, (req, res) => {
