@@ -2508,12 +2508,12 @@ async function renderSettings(main) {
         <div class="settings-section-body" id="usersList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
 
-      <section class="settings-section" aria-label="Devices">
+      <section class="settings-section" aria-label="Devices" style="opacity:0.5">
         <div class="settings-section-header">
           <span class="material-symbols-outlined">sensors</span> Devices & Sensors
-          <button class="btn btn-primary btn-sm section-action" type="button" id="createDeviceBtn">+ Add</button>
+          <span class="badge badge-gray" style="margin-left:auto">Coming Soon</span>
         </div>
-        <div class="settings-section-body" id="devicesList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
+        <div class="settings-section-body"><div class="settings-item"><div class="settings-item-desc">Device and sensor integrations are not yet available.</div></div></div>
       </section>
 
       <section class="settings-section" aria-label="Webhooks">
@@ -2587,9 +2587,7 @@ async function renderSettings(main) {
     loadUsersPanel();
     loadAuditPanel();
     loadGardenTypesSettings();
-    loadDevicesPanel();
     loadWebhooksPanel();
-    document.getElementById('createDeviceBtn').addEventListener('click', showCreateDeviceModal);
     document.getElementById('createWebhookBtn').addEventListener('click', showCreateWebhookModal);
   }
 }
