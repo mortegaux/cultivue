@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CultiVue</title>
-  <link rel="stylesheet" href="/css/styles.css?v=5">
+  <link rel="stylesheet" href="/css/styles.css?v=7">
   <script defer src="/js/chart.min.js"></script>
 </head>
 <body>
@@ -47,12 +47,17 @@
     </main>
   </div>
 
+  <!-- Drawer (slide-out panel) -->
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden>
+    <div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle"></div>
+  </div>
+
   <!-- Modal backdrop -->
   <div class="modal-backdrop" id="modalBackdrop" hidden>
     <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div>
   </div>
 
-  <script src="/js/api.js?v=5"></script>
-  <script src="/js/app.js?v=5"></script>
+  <script src="/js/api.js?v=7"></script>
+  <script src="/js/app.js?v=7"></script>
 </body>
 </html>

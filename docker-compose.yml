@@ -2,7 +2,7 @@ services:
   cultivue:
     build: .
     ports:
-      - "8777:3000"
+      - "8778:3000"
     volumes:
       - cultivue-data:/app/data
     restart: unless-stopped

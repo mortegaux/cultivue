@@ -181,7 +181,8 @@ input, select, textarea { font: inherit; }
   padding: 20px; box-shadow: var(--shadow);
 }
 
-.stat-card { display: flex; align-items: center; gap: 14px; }
+.stat-card { display: flex; align-items: center; gap: 14px; transition: box-shadow 0.15s, transform 0.15s; }
+.stat-card[data-nav]:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 
 /* === Grid Layouts === */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -226,7 +227,7 @@ input, select, textarea { font: inherit; }
 .garden-row:last-child { border-bottom: none; }
 .garden-row:hover { background: var(--bg-hover); }
 .garden-row-icon { font-size: 20px; flex-shrink: 0; }
-.garden-row-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 180px; }
+.garden-row-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .garden-row-badges { display: flex; gap: 6px; flex-shrink: 0; }
 .garden-row-metrics { display: flex; gap: 12px; font-size: 0.85rem; color: var(--text-secondary); margin-left: auto; flex-shrink: 0; align-items: center; }
 .garden-row-metrics .garden-health { display: inline-flex; gap: 6px; font-size: 0.85rem; }
@@ -356,7 +357,9 @@ input, select, textarea { font: inherit; }
 .task-item-compact {
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  cursor: pointer; transition: background 0.1s;
 }
+.task-item-compact:hover { background: var(--bg-hover); }
 .task-item-compact:last-child { border-bottom: none; }
 .task-item-title { flex: 1; font-weight: 500; }
 .task-item-garden { color: var(--text-tertiary); font-size: 0.75rem; }
@@ -463,6 +466,22 @@ select.form-input {
 .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
 .checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem; min-height: 44px; }
 
+/* === Quick-Add Dropdown === */
+.quick-add-wrap { position: relative; }
+.quick-add-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15); min-width: 180px; padding: 4px 0;
+}
+.quick-add-menu[hidden] { display: none; }
+.quick-add-menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px;
+  border: none; background: none; font: inherit; font-size: 0.9rem; color: var(--text);
+  cursor: pointer; text-align: left;
+}
+.quick-add-menu button:hover { background: var(--bg-hover); }
+.quick-add-menu button .material-symbols-outlined { font-size: 20px; color: var(--text-secondary); }
+
 /* === Modal === */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex;
@@ -474,6 +493,45 @@ select.form-input {
 }
 .modal h2 { font-size: 1.25rem; margin-bottom: 20px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+/* === Drawer (slide-out panel) === */
+.drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 900;
+  animation: drawerFadeIn 0.2s ease;
+}
+.drawer-backdrop.closing { animation: drawerFadeOut 0.2s ease forwards; }
+
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 420px;
+  background: var(--bg-card); box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform 0.3s ease;
+}
+.drawer.open { transform: translateX(0); }
+
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.drawer-header h2 { font-size: 1.25rem; font-weight: 700; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.drawer-close {
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-secondary); cursor: pointer; padding: 4px;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 36px; min-height: 36px; flex-shrink: 0;
+}
+.drawer-close:hover { background: var(--bg-hover); color: var(--text); }
+
+.drawer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+.drawer-actions {
+  display: flex; gap: 8px; justify-content: flex-end; padding: 16px 24px;
+  border-top: 1px solid var(--border); flex-shrink: 0;
+}
+
+@keyframes drawerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawerFadeOut { from { opacity: 1; } to { opacity: 0; } }
 
 /* === Toast === */
 .toast-container {
@@ -610,6 +668,57 @@ select.form-input {
 /* === Garden Detail Stats === */
 .garden-detail-stats { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
 
+/* === Garden Detail Hero === */
+.garden-hero {
+  display: flex; align-items: flex-start; gap: 16px; padding: 20px 24px;
+  border-left: 4px solid var(--primary); margin-bottom: 16px; position: relative;
+}
+.garden-hero.border-blue { border-left-color: var(--secondary); }
+.garden-hero.border-green { border-left-color: var(--primary); }
+.garden-hero.border-amber { border-left-color: var(--warning); }
+.garden-hero.border-purple { border-left-color: #7c3aed; }
+[data-theme="dark"] .garden-hero.border-purple { border-left-color: #c4b5fd; }
+
+.garden-hero-icon {
+  width: 52px; height: 52px; border-radius: 12px; display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem;
+}
+.garden-hero-info { flex: 1; min-width: 0; }
+.garden-hero-info h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; line-height: 1.2; }
+.garden-hero-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.garden-hero-subtitle { font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 12px; flex-wrap: wrap; }
+.garden-hero-actions {
+  display: flex; gap: 8px; flex-shrink: 0; align-self: flex-start;
+}
+
+/* === Garden Stat Strip === */
+.garden-stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.garden-stat-card {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+/* === Latest Reading Strip === */
+.garden-latest-reading {
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); margin-bottom: 16px; flex-wrap: wrap;
+}
+.garden-latest-reading .reading-label {
+  font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+}
+.reading-pills { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; flex: 1; }
+.reading-pill {
+  display: flex; align-items: center; gap: 6px; font-size: 0.9rem;
+}
+.reading-pill .health-dot { flex-shrink: 0; }
+.reading-pill .reading-val { font-weight: 600; }
+.reading-pill .reading-unit { font-size: 0.8rem; color: var(--text-secondary); }
+.reading-pill .reading-name { font-size: 0.75rem; color: var(--text-tertiary); margin-left: 2px; }
+.reading-time { font-size: 0.75rem; color: var(--text-tertiary); margin-left: auto; white-space: nowrap; }
+
 /* === Responsive: Intermediate === */
 @media (max-width: 900px) {
   .content-split { grid-template-columns: 1fr; }
@@ -677,10 +786,21 @@ select.form-input {
   .dgr-stat, .dgr-health { display: none; }
   .dgr-name { max-width: 160px; }
 
+  /* Garden detail hero: stack vertically */
+  .garden-hero { flex-wrap: wrap; padding: 16px; gap: 12px; }
+  .garden-hero-icon { width: 44px; height: 44px; font-size: 1.25rem; }
+  .garden-hero-info h1 { font-size: 1.25rem; }
+  .garden-hero-actions { width: 100%; justify-content: flex-end; }
+  .garden-stat-strip { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .garden-stat-card { padding: 10px 12px; gap: 10px; }
+  .garden-latest-reading { gap: 10px; padding: 10px 12px; }
+  .reading-pills { gap: 10px; }
+  .reading-time { margin-left: 0; width: 100%; }
+
   /* Compact garden rows: wrap to 2 lines on mobile */
   .garden-row { flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
   .garden-row-metrics { margin-left: 0; width: 100%; padding-left: 32px; }
-  .garden-row-name { max-width: 140px; }
+  .garden-row-name { max-width: none; }
 
   /* Content split stacks on mobile */
   .content-split { grid-template-columns: 1fr; gap: 16px; }
@@ -705,6 +825,9 @@ select.form-input {
   .modal-backdrop { padding: 8px; align-items: flex-end; }
   .modal { border-radius: 16px 16px 0 0; max-height: 85vh; padding: 20px 16px; }
   .form-row { grid-template-columns: 1fr; }
+
+  /* Drawer: full-width on mobile */
+  .drawer { width: 100%; }
 
   /* Settings */
   .settings-item { flex-direction: column; align-items: flex-start; gap: 8px; }

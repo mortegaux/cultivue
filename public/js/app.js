@@ -380,8 +380,6 @@ function navigateTo(page, data) {
   // Build hash URL
   let hash = '#/' + page;
   if (page === 'garden-detail' && state.selectedGardenId) hash += '/' + state.selectedGardenId;
-  else if (page === 'location-detail' && state._selectedLocationId) hash += '/' + state._selectedLocationId;
-  else if (page === 'seed-detail' && state._selectedSeedId) hash += '/' + state._selectedSeedId;
   if (location.hash !== hash) history.pushState(null, '', hash);
   updateNavHighlight(page);
   renderPage();
@@ -390,7 +388,7 @@ function navigateTo(page, data) {
 
 function updateNavHighlight(page) {
   document.querySelectorAll('.nav-link').forEach(l => {
-    const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens') || (page === 'location-detail' && l.dataset.page === 'locations') || (page === 'seed-detail' && l.dataset.page === 'seeds');
+    const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens');
     l.classList.toggle('active', isActive);
     if (isActive) l.setAttribute('aria-current', 'page');
     else l.removeAttribute('aria-current');
@@ -403,8 +401,6 @@ function routeFromHash() {
   const page = parts[0] || 'dashboard';
   const id = parts[1] || null;
   if (page === 'garden-detail' && id) state.selectedGardenId = id;
-  else if (page === 'location-detail' && id) state._selectedLocationId = id;
-  else if (page === 'seed-detail' && id) state._selectedSeedId = id;
   state.currentPage = page;
   updateNavHighlight(page);
   renderPage();
@@ -460,12 +456,10 @@ function renderPage() {
     case 'dashboard': renderDashboard(main); break;
     case 'gardens': renderGardensPage(main); break;
     case 'locations': renderLocationsPage(main); break;
-    case 'location-detail': renderLocationDetail(main); break;
     case 'logs': renderLogs(main); break;
     case 'tasks': renderTasks(main); break;
     case 'plants': renderPlants(main); break;
     case 'seeds': renderSeeds(main); break;
-    case 'seed-detail': renderSeedDetail(main); break;
     case 'settings': renderSettings(main); break;
     case 'garden-detail': {
       const garden = getSelectedGarden();
@@ -622,6 +616,63 @@ function closeModal() {
   if (_modalPreviousFocus) { _modalPreviousFocus.focus(); _modalPreviousFocus = null; }
 }
 
+// === Drawer (slide-out panel) with focus trap ===
+let _drawerPreviousFocus = null;
+
+function showDrawer(html) {
+  _drawerPreviousFocus = document.activeElement;
+  const backdrop = document.getElementById('drawerBackdrop');
+  const drawer = document.getElementById('drawer');
+  drawer.innerHTML = html;
+  backdrop.hidden = false;
+  backdrop.classList.remove('closing');
+
+  // Trigger slide-in on next frame
+  requestAnimationFrame(() => { drawer.classList.add('open'); });
+
+  // Focus trap
+  const focusable = drawer.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (focusable.length) focusable[0].focus();
+
+  function trapFocus(e) {
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    if (e.key !== 'Tab') return;
+    const els = drawer.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    const first = els[0], last = els[els.length - 1];
+    if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
+    else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
+  }
+
+  drawer._trapFocus = trapFocus;
+  drawer.addEventListener('keydown', trapFocus);
+
+  function onBackdropClick(e) { if (e.target === backdrop) closeDrawer(); }
+  backdrop._backdropClick = onBackdropClick;
+  backdrop.addEventListener('click', onBackdropClick);
+}
+
+function closeDrawer() {
+  const backdrop = document.getElementById('drawerBackdrop');
+  const drawer = document.getElementById('drawer');
+
+  drawer.classList.remove('open');
+  backdrop.classList.add('closing');
+
+  function onDone() {
+    drawer.removeEventListener('transitionend', onDone);
+    clearTimeout(fallback);
+    backdrop.hidden = true;
+    backdrop.classList.remove('closing');
+    drawer.innerHTML = '';
+    if (drawer._trapFocus) { drawer.removeEventListener('keydown', drawer._trapFocus); delete drawer._trapFocus; }
+    if (backdrop._backdropClick) { backdrop.removeEventListener('click', backdrop._backdropClick); delete backdrop._backdropClick; }
+    if (_drawerPreviousFocus) { _drawerPreviousFocus.focus(); _drawerPreviousFocus = null; }
+  }
+
+  drawer.addEventListener('transitionend', onDone, { once: true });
+  const fallback = setTimeout(onDone, 350);
+}
+
 // ============================================
 // === DASHBOARD
 // ============================================
@@ -629,11 +680,35 @@ async function renderDashboard(main) {
   main.innerHTML = `
     <header class="page-header">
       <div><p class="subtitle">${timeGreeting()}, ${esc(state.user?.display_name || '')}!</p><h1>Dashboard</h1></div>
-      <button class="btn btn-primary" type="button" id="dashNewGarden">+ New Garden</button>
+      <div class="quick-add-wrap">
+        <button class="btn btn-primary" type="button" id="dashQuickAdd">+ New <span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px">expand_more</span></button>
+        <div class="quick-add-menu" id="dashQuickAddMenu" hidden>
+          <button type="button" data-action="log"><span class="material-symbols-outlined">monitoring</span> Log Entry</button>
+          <button type="button" data-action="plant"><span class="material-symbols-outlined">potted_plant</span> Plant</button>
+          <button type="button" data-action="garden"><span class="material-symbols-outlined">yard</span> Garden</button>
+          <button type="button" data-action="seed"><span class="material-symbols-outlined">grass</span> Seed</button>
+          <button type="button" data-action="location"><span class="material-symbols-outlined">location_on</span> Location</button>
+        </div>
+      </div>
     </header>
     <div id="dashboardContent"><p class="loading-text">Loading...</p></div>
   `;
-  document.getElementById('dashNewGarden').addEventListener('click', showCreateGardenModal);
+
+  // Quick-add dropdown
+  const qaBtn = document.getElementById('dashQuickAdd');
+  const qaMenu = document.getElementById('dashQuickAddMenu');
+  qaBtn.addEventListener('click', () => { qaMenu.hidden = !qaMenu.hidden; });
+  document.addEventListener('click', e => { if (!qaBtn.contains(e.target) && !qaMenu.contains(e.target)) qaMenu.hidden = true; }, { once: false });
+  qaMenu.addEventListener('click', e => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    qaMenu.hidden = true;
+    if (action === 'log') showAddLogModalGlobal();
+    else if (action === 'plant') showAddPlantModal();
+    else if (action === 'garden') showCreateGardenModal();
+    else if (action === 'seed') showAddSeedModal();
+    else if (action === 'location') showCreateLocationModal();
+  });
 
   try {
     const [dashStats] = await Promise.all([API.getDashboardStats(), loadGardens()]);
@@ -644,10 +719,10 @@ async function renderDashboard(main) {
     container.innerHTML = `
       <section aria-label="Overview statistics">
         <div class="grid-4 dash-stats">
-          <div class="card stat-card"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">yard</span></div><div><div class="metric-value">${dashStats.total_gardens}</div><div class="metric-label">Gardens</div></div></div>
-          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${dashStats.total_plants}</div><div class="metric-label">Plants</div></div></div>
-          <div class="card stat-card"><div class="metric-icon amber" aria-hidden="true"><span class="material-symbols-outlined">checklist</span></div><div><div class="metric-value">${dashStats.total_active_tasks}</div><div class="metric-label">Active Tasks</div></div></div>
-          <div class="card stat-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">monitoring</span></div><div><div class="metric-value">${dashStats.total_logs}</div><div class="metric-label">Log Entries</div></div></div>
+          <div class="card stat-card" data-nav="gardens" style="cursor:pointer"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">yard</span></div><div><div class="metric-value">${dashStats.total_gardens}</div><div class="metric-label">Gardens</div></div></div>
+          <div class="card stat-card" data-nav="plants" style="cursor:pointer"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${dashStats.total_plants}</div><div class="metric-label">Plants</div></div></div>
+          <div class="card stat-card" data-nav="tasks" style="cursor:pointer"><div class="metric-icon amber" aria-hidden="true"><span class="material-symbols-outlined">checklist</span></div><div><div class="metric-value">${dashStats.total_active_tasks}</div><div class="metric-label">Active Tasks</div></div></div>
+          <div class="card stat-card" data-nav="logs" style="cursor:pointer"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">monitoring</span></div><div><div class="metric-value">${dashStats.total_logs}</div><div class="metric-label">Log Entries</div></div></div>
         </div>
       </section>
 
@@ -667,6 +742,11 @@ async function renderDashboard(main) {
         </section>
       </div>
     `;
+
+    // Stat card navigation
+    main.querySelectorAll('.stat-card[data-nav]').forEach(card => {
+      card.addEventListener('click', () => navigateTo(card.dataset.nav));
+    });
 
     // Garden grid
     const grid = document.getElementById('dashGardenGrid');
@@ -689,7 +769,6 @@ async function renderDashboard(main) {
           <td class="dgr-stat">${stats.active_plants} <span class="dgr-label">plants</span></td>
           <td class="dgr-stat">${stats.total_logs} <span class="dgr-label">logs</span></td>
           <td class="dgr-stat">${stats.active_tasks} <span class="dgr-label">tasks</span></td>
-          <td class="dgr-health">${renderGardenHealthBar(stats, garden)}</td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
       grid.querySelectorAll('.dash-garden-row').forEach(row => {
@@ -704,13 +783,19 @@ async function renderDashboard(main) {
     } else {
       tasksEl.innerHTML = `<div class="card" style="padding:0"><div class="task-list-compact">${dashStats.upcoming_tasks.map(t => {
         const isOverdue = new Date(t.due_date) < new Date();
-        return `<div class="task-item-compact">
+        return `<div class="task-item-compact" data-task-id="${t.id}">
           <span class="priority-dot priority-${t.priority}" aria-label="${t.priority} priority"></span>
           <span class="task-item-title">${esc(t.title)}</span>
           <span class="task-item-garden">${esc(t.garden_name)}</span>
           <span class="task-item-date ${isOverdue ? 'overdue' : ''}">${formatDate(t.due_date)}</span>
         </div>`;
       }).join('')}</div></div>`;
+      tasksEl.querySelectorAll('.task-item-compact[data-task-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const task = dashStats.upcoming_tasks.find(t => t.id === el.dataset.taskId);
+          if (task) showTaskDetailModal(task);
+        });
+      });
     }
 
     // Recent activity
@@ -732,24 +817,6 @@ async function renderDashboard(main) {
   }
 }
 
-function renderGardenHealthBar(stats, garden) {
-  if (!stats.latest_log) return '';
-  const md = stats.latest_log.metric_data || {};
-  const ph = md.ph ?? stats.latest_log.ph;
-  const ppm = md.ppm ?? stats.latest_log.ppm;
-
-  const indicators = [];
-  if (ph != null) {
-    const status = ph >= 5.5 && ph <= 6.5 ? 'good' : ph >= 5.0 && ph <= 7.0 ? 'warn' : 'bad';
-    indicators.push(`<span class="health-dot health-${status}" title="pH: ${ph}"></span><span>pH: ${ph.toFixed ? ph.toFixed(1) : ph}</span>`);
-  }
-  if (ppm != null) {
-    const status = ppm >= 800 && ppm <= 1500 ? 'good' : ppm >= 400 && ppm <= 2000 ? 'warn' : 'bad';
-    indicators.push(`<span class="health-dot health-${status}" title="PPM: ${ppm}"></span><span>PPM: ${ppm}</span>`);
-  }
-  if (!indicators.length) return '';
-  return `<div class="garden-health">${indicators.join('')}</div>`;
-}
 
 // ============================================
 // === GARDENS PAGE
@@ -786,7 +853,6 @@ async function renderGardensPage(main) {
         <span>${stats.total_logs} Logs</span>
         <span>${stats.active_tasks} Tasks</span>
         <span>${daysAgo(garden.start_date)}d</span>
-        ${renderGardenHealthBar(stats, garden)}
       </span>
     </button>`;
   }).join('')}</div>`;
@@ -808,27 +874,56 @@ async function renderGardenDetailPage(main, garden) {
   const catColor = CATEGORY_COLORS[category] || 'green';
   const catIcon = CATEGORY_ICONS[category] || 'eco';
 
+  // Build latest reading strip if available
+  let latestReadingHtml = '';
+  if (stats.latest_log && stats.latest_log.metric_data) {
+    const md = stats.latest_log.metric_data;
+    const availMetrics = await getAvailableMetrics(garden);
+    const pills = availMetrics.map(m => {
+      const val = md[m.id] ?? null;
+      if (val == null) return '';
+      const formatted = typeof val === 'number' && m.decimal_places != null ? val.toFixed(m.decimal_places) : val;
+      const inRange = m.ideal_min != null && m.ideal_max != null
+        ? (val >= m.ideal_min && val <= m.ideal_max ? 'good' : val >= m.ideal_min * 0.8 && val <= m.ideal_max * 1.2 ? 'warn' : 'bad')
+        : '';
+      return `<div class="reading-pill"><span class="health-dot ${inRange ? 'health-' + inRange : ''}"></span><span class="reading-val">${formatted}</span>${m.unit_metric ? `<span class="reading-unit">${esc(m.unit_metric)}</span>` : ''}<span class="reading-name">${esc(m.name)}</span></div>`;
+    }).filter(Boolean).join('');
+    if (pills) {
+      latestReadingHtml = `<div class="garden-latest-reading">
+        <span class="reading-label">Latest Reading</span>
+        <div class="reading-pills">${pills}</div>
+        <span class="reading-time">${formatDateTime(stats.latest_log.timestamp)}</span>
+      </div>`;
+    }
+  }
+
   main.innerHTML = `
-    <header class="page-header">
-      <div>
-        <p class="subtitle"><button class="link-btn" type="button" id="backToGardens">Gardens</button> / ${esc(garden.name)}</p>
+    <p class="subtitle" style="margin-bottom:8px"><button class="link-btn" type="button" id="backToGardens">Gardens</button> / ${esc(garden.name)}</p>
+    <div class="card garden-hero border-${catColor}">
+      <div class="garden-hero-icon metric-icon ${catColor}"><span class="material-symbols-outlined">${catIcon}</span></div>
+      <div class="garden-hero-info">
         <h1>${esc(garden.name)}</h1>
+        <div class="garden-hero-badges">
+          <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
+          ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
+        </div>
+        <div class="garden-hero-subtitle">
+          <span>Started ${formatDate(garden.start_date)}</span>
+          ${garden.location_name ? `<span><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">location_on</span> ${esc(garden.location_name)}</span>` : ''}
+        </div>
       </div>
-      <div class="header-actions">
+      <div class="garden-hero-actions">
         <button class="btn btn-secondary btn-sm" type="button" id="editGardenBtn" aria-label="Edit garden">Edit</button>
         <button class="btn btn-danger btn-sm" type="button" id="deleteGardenBtn" aria-label="Delete garden">Delete</button>
       </div>
-    </header>
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-      <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
-      ${garden.location_name ? `<span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}
     </div>
-    <div class="garden-detail-stats">
-      <div class="metric-card"><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div>
-      <div class="metric-card"><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div>
-      <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
-      <div class="metric-card"><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div>
+    <div class="garden-stat-strip">
+      <div class="garden-stat-card"><div class="metric-icon green"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${stats.active_plants}</div><div class="metric-label">Plants</div></div></div>
+      <div class="garden-stat-card"><div class="metric-icon blue"><span class="material-symbols-outlined">monitoring</span></div><div><div class="metric-value">${stats.total_logs}</div><div class="metric-label">Logs</div></div></div>
+      <div class="garden-stat-card"><div class="metric-icon amber"><span class="material-symbols-outlined">checklist</span></div><div><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div></div>
+      <div class="garden-stat-card"><div class="metric-icon green"><span class="material-symbols-outlined">calendar_today</span></div><div><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div></div>
     </div>
+    ${latestReadingHtml}
     <div class="tabs" style="max-width:400px" role="tablist">
       <button class="tab ${tab === 'plants' ? 'active' : ''}" role="tab" aria-selected="${tab === 'plants'}" data-tab="plants" type="button">Plants</button>
       <button class="tab ${tab === 'logs' ? 'active' : ''}" role="tab" aria-selected="${tab === 'logs'}" data-tab="logs" type="button">Logs</button>
@@ -1152,44 +1247,63 @@ async function renderLocationsPage(main) {
     </button>
   `).join('')}</div>`;
   el.querySelectorAll('[data-location-id]').forEach(card => {
-    card.addEventListener('click', () => {
-      state._selectedLocationId = card.dataset.locationId;
-      navigateTo('location-detail');
-    });
+    card.addEventListener('click', () => showLocationDetail(card.dataset.locationId));
   });
 }
 
-async function renderLocationDetail(main) {
-  const locationId = state._selectedLocationId;
-  const location = state.locations.find(l => l.id === locationId);
-  if (!location) { navigateTo('locations'); return; }
+async function showLocationDetail(locationId) {
+  const loc = state.locations.find(l => l.id === locationId);
+  if (!loc) return;
 
-  main.innerHTML = `
-    <header class="page-header">
-      <div>
-        <p class="subtitle"><button class="link-btn" type="button" id="backToLocations">Locations</button> / ${esc(location.name)}</p>
-        <h1>${esc(location.name)}</h1>
+  showDrawer(`
+    <div class="drawer-header">
+      <h2 id="drawerTitle">${esc(loc.name)}</h2>
+      <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
+    </div>
+    <div class="drawer-body">
+      ${loc.description ? `<p class="secondary-text" style="margin-bottom:16px">${esc(loc.description)}</p>` : ''}
+      <div class="detail-grid" style="margin-bottom:20px">
+        <div><div class="detail-label">Gardens</div><div class="detail-value">${loc.garden_count}</div></div>
+        <div><div class="detail-label">Sort Order</div><div class="detail-value">${loc.sort_order || 0}</div></div>
       </div>
-    </header>
-    ${location.description ? `<p class="secondary-text" style="margin-bottom:16px">${esc(location.description)}</p>` : ''}
-    <div id="locationGardensList"><p class="loading-text">Loading...</p></div>
-  `;
-  document.getElementById('backToLocations').addEventListener('click', () => navigateTo('locations'));
+      <h3 class="section-heading" style="margin-top:0">Gardens at this location</h3>
+      <div id="drawerLocationGardens"><p class="loading-text">Loading...</p></div>
+    </div>
+    <div class="drawer-actions">
+      <button class="btn btn-danger btn-sm" type="button" id="deleteLocationBtn">Delete</button>
+      <button class="btn btn-secondary" type="button" id="editLocationBtn">Edit</button>
+    </div>`);
 
+  document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
+  document.getElementById('deleteLocationBtn').addEventListener('click', async () => {
+    if (!confirm('Delete this location? Gardens at this location will keep their data but lose the location assignment.')) return;
+    await API.deleteLocation(loc.id);
+    closeDrawer();
+    toast('Location deleted');
+    state.locations = await API.getLocations().catch(() => state.locations);
+    renderPage();
+  });
+  document.getElementById('editLocationBtn').addEventListener('click', () => {
+    closeDrawer();
+    showEditLocationModal(loc);
+  });
+
+  // Load gardens asynchronously into the drawer
   try {
     const gardens = await API.getLocationGardens(locationId);
-    const el = document.getElementById('locationGardensList');
+    const el = document.getElementById('drawerLocationGardens');
+    if (!el) return; // drawer was closed
     if (!gardens.length) {
-      el.innerHTML = '<div class="empty-state"><h3>No gardens at this location</h3><p>Assign gardens to this location when creating or editing them.</p></div>';
+      el.innerHTML = '<p class="empty-text">No gardens at this location.</p>';
       return;
     }
     const allStats = await Promise.all(gardens.map(g => API.getStats(g.id)));
-    el.innerHTML = `<div class="grid-2">${gardens.map((garden, i) => {
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px">${gardens.map((garden, i) => {
       const stats = allStats[i];
       const category = getGardenCategory(garden);
       const catColor = CATEGORY_COLORS[category] || 'green';
       const catIcon = CATEGORY_ICONS[category] || 'eco';
-      return `<button class="card garden-card" type="button" data-garden-id="${garden.id}">
+      return `<button class="card garden-card" type="button" data-garden-id="${garden.id}" style="padding:16px">
         <div class="garden-card-header">
           <h3>${esc(garden.name)}</h3>
           <span class="badge badge-${catColor}"><span class="material-symbols-outlined badge-icon">${catIcon}</span> ${esc(getGardenTypeDisplay(garden))}</span>
@@ -1200,14 +1314,14 @@ async function renderLocationDetail(main) {
           <div class="metric-card"><div class="metric-value">${stats.active_tasks}</div><div class="metric-label">Tasks</div></div>
           <div class="metric-card"><div class="metric-value">${daysAgo(garden.start_date)}d</div><div class="metric-label">Age</div></div>
         </div>
-        ${renderGardenHealthBar(stats, garden)}
       </button>`;
     }).join('')}</div>`;
     el.querySelectorAll('.garden-card').forEach(card => {
-      card.addEventListener('click', () => viewGardenDetail(card.dataset.gardenId));
+      card.addEventListener('click', () => { closeDrawer(); viewGardenDetail(card.dataset.gardenId); });
     });
   } catch {
-    document.getElementById('locationGardensList').innerHTML = '<p class="empty-text">Failed to load gardens.</p>';
+    const el = document.getElementById('drawerLocationGardens');
+    if (el) el.innerHTML = '<p class="empty-text">Failed to load gardens.</p>';
   }
 }
 
@@ -1408,6 +1522,22 @@ function renderLogsList(logs, availableMetrics) {
       toast('Log entry deleted');
       renderPage();
     });
+  });
+}
+
+function showAddLogModalGlobal() {
+  if (!state.gardens.length) { toast('Create a garden first', 'error'); return; }
+  if (state.gardens.length === 1) { showAddLogModal(state.gardens[0]); return; }
+  showModal(`<h2 id="modalTitle">Select Garden</h2>
+    <div class="form-group"><label for="logGardenPicker">Which garden is this log for?</label>
+      <select class="form-input" id="logGardenPicker">${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelLogPicker">Cancel</button><button type="button" class="btn btn-primary" id="confirmLogPicker">Continue</button></div>`);
+  document.getElementById('cancelLogPicker').addEventListener('click', closeModal);
+  document.getElementById('confirmLogPicker').addEventListener('click', () => {
+    const garden = state.gardens.find(g => g.id === document.getElementById('logGardenPicker').value);
+    closeModal();
+    if (garden) showAddLogModal(garden);
   });
 }
 
@@ -1720,6 +1850,65 @@ function showAddTaskModalGlobal() {
   });
 }
 
+function showTaskDetailModal(task) {
+  const isOverdue = !task.is_completed && task.due_date && new Date(task.due_date) < new Date();
+  const priorityLabels = { low: 'Low', medium: 'Medium', high: 'High' };
+  showModal(`
+    <h2 id="modalTitle">${esc(task.title)}</h2>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge badge-${task.priority === 'high' ? 'red' : task.priority === 'medium' ? 'amber' : 'green'}">
+          <span class="priority-dot priority-${task.priority}" style="margin-right:4px"></span>${priorityLabels[task.priority] || task.priority} priority
+        </span>
+        ${isOverdue ? '<span class="badge badge-red">Overdue</span>' : ''}
+        ${task.is_recurring ? '<span class="badge badge-blue">Recurring</span>' : ''}
+      </div>
+      ${task.description ? `<div style="color:var(--text-secondary);font-size:0.9rem;line-height:1.5">${esc(task.description)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:0.85rem">
+        <div><div class="detail-label">Due Date</div><div class="detail-value ${isOverdue ? 'overdue' : ''}">${formatDate(task.due_date)}</div></div>
+        <div><div class="detail-label">Status</div><div class="detail-value">${task.is_completed ? 'Completed' : 'Open'}</div></div>
+        ${task.garden_name ? `<div><div class="detail-label">Garden</div><div class="detail-value">${esc(task.garden_name)}</div></div>` : ''}
+        ${task.plant_name ? `<div><div class="detail-label">Plant</div><div class="detail-value">${esc(task.plant_name)}</div></div>` : ''}
+        ${task.is_recurring && task.recurring_days ? `<div><div class="detail-label">Repeats</div><div class="detail-value">Every ${task.recurring_days} day${task.recurring_days !== 1 ? 's' : ''}</div></div>` : ''}
+        ${task.completed_at ? `<div><div class="detail-label">Completed</div><div class="detail-value">${formatDateTime(task.completed_at)}</div></div>` : ''}
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" type="button" id="taskDetailDeleteBtn">Delete</button>
+      <div style="flex:1"></div>
+      ${!task.is_completed ? '<button class="btn btn-primary" type="button" id="taskDetailCompleteBtn">Mark Complete</button>' : ''}
+      <button class="btn btn-secondary" type="button" id="taskDetailCloseBtn">Close</button>
+    </div>
+  `);
+  document.getElementById('taskDetailCloseBtn').addEventListener('click', closeModal);
+  document.getElementById('taskDetailDeleteBtn').addEventListener('click', async () => {
+    if (!confirm('Delete this task?')) return;
+    try {
+      await API.deleteTask(task.id);
+      closeModal();
+      renderPage();
+    } catch (err) {
+      showToast('Failed to delete task', 'error');
+    }
+  });
+  const completeBtn = document.getElementById('taskDetailCompleteBtn');
+  if (completeBtn) {
+    completeBtn.addEventListener('click', async () => {
+      completeBtn.disabled = true;
+      completeBtn.textContent = 'Completing…';
+      try {
+        await API.toggleTask(task.id);
+        closeModal();
+        renderPage();
+      } catch (err) {
+        completeBtn.disabled = false;
+        completeBtn.textContent = 'Mark Complete';
+        showToast('Failed to complete task', 'error');
+      }
+    });
+  }
+}
+
 function showEditTaskModal(task) {
   const dueDate = task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : '';
   showModal(`<h2 id="modalTitle">Edit Task</h2><form id="taskForm">
@@ -1790,18 +1979,13 @@ async function renderPlants(main) {
 function renderPlantsGrid(plants, el, showGarden = false) {
   if (!plants.length) { el.innerHTML = '<div class="empty-state"><h3>No plants yet</h3><p>Add plants from within a garden.</p></div>'; return; }
   el.innerHTML = `<div class="card" style="padding:0">${plants.map(plant => {
-    const age = daysAgo(plant.seeded_date || plant.created_at);
-    const ageStr = age < 7 ? `${age}d` : age < 30 ? `${Math.floor(age/7)}w` : `${Math.floor(age/30)}mo`;
     return `<button class="garden-row" type="button" data-plant-id="${plant.id}">
       <span class="material-symbols-outlined garden-row-icon">${PLANT_ICONS[plant.plant_type] || 'eco'}</span>
       <span class="garden-row-name">${esc(plant.name)}</span>
       <span class="garden-row-badges">
         <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
-        <span class="badge badge-gray">${ageStr}</span>
         ${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}
-        ${plant.seed_id && getSeedName(plant.seed_id) ? `<span class="badge badge-green">${esc(getSeedName(plant.seed_id))}</span>` : ''}
       </span>
-      <span class="garden-row-metrics"><span>${esc(plant.species)}</span></span>
     </button>`;
   }).join('')}</div>`;
   el.querySelectorAll('[data-plant-id]').forEach(card => {
@@ -1860,43 +2044,48 @@ function showPlantDetail(id) {
 
   const seedName = getSeedName(plant.seed_id);
   const canFail = plant.is_active && ['seed', 'germination', 'seedling'].includes(plant.current_stage);
-  showModal(`<h2 id="modalTitle">${esc(plant.name)}</h2>
-    <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
-      <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
-      <span class="badge badge-gray">${esc(plant.plant_type)}</span>
-      ${seedName ? `<span class="badge badge-green">Seed: ${esc(seedName)}</span>` : ''}
+  showDrawer(`
+    <div class="drawer-header">
+      <h2 id="drawerTitle">${esc(plant.name)}</h2>
+      <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
     </div>
-    <div class="detail-grid">
-      <div><div class="detail-label">Species</div><div class="detail-value">${esc(plant.species)}</div></div>
-      <div><div class="detail-label">Seeded</div><div class="detail-value">${formatDate(plant.seeded_date)}</div></div>
-      <div><div class="detail-label">Transplanted</div><div class="detail-value">${formatDate(plant.transplanted_date)}</div></div>
-      <div><div class="detail-label">Initial pH</div><div class="detail-value">${plant.initial_ph ?? '--'}</div></div>
-      <div><div class="detail-label">Initial PPM</div><div class="detail-value">${plant.initial_ppm ?? '--'}</div></div>
-      <div><div class="detail-label">Harvest Date</div><div class="detail-value">${formatDate(plant.harvest_date)}</div></div>
-      ${plant.yield_amount ? `<div><div class="detail-label">Yield</div><div class="detail-value">${plant.yield_amount}</div></div>` : ''}
+    <div class="drawer-body">
+      <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
+        <span class="badge badge-gray">${esc(plant.plant_type)}</span>
+        ${seedName ? `<span class="badge badge-green">Seed: ${esc(seedName)}</span>` : ''}
+      </div>
+      <div class="detail-grid">
+        <div><div class="detail-label">Species</div><div class="detail-value">${esc(plant.species)}</div></div>
+        <div><div class="detail-label">Seeded</div><div class="detail-value">${formatDate(plant.seeded_date)}</div></div>
+        <div><div class="detail-label">Transplanted</div><div class="detail-value">${formatDate(plant.transplanted_date)}</div></div>
+        <div><div class="detail-label">Initial pH</div><div class="detail-value">${plant.initial_ph ?? '--'}</div></div>
+        <div><div class="detail-label">Initial PPM</div><div class="detail-value">${plant.initial_ppm ?? '--'}</div></div>
+        <div><div class="detail-label">Harvest Date</div><div class="detail-value">${formatDate(plant.harvest_date)}</div></div>
+        ${plant.yield_amount ? `<div><div class="detail-label">Yield</div><div class="detail-value">${plant.yield_amount}</div></div>` : ''}
+      </div>
+      ${plant.notes ? `<div class="detail-notes">${esc(plant.notes)}</div>` : ''}
     </div>
-    ${plant.notes ? `<div class="detail-notes">${esc(plant.notes)}</div>` : ''}
-    <div class="modal-actions">
+    <div class="drawer-actions">
       ${canFail ? '<button class="btn btn-danger btn-sm" type="button" id="failPlantBtn">Mark as Failed</button>' : ''}
       <button class="btn btn-danger btn-sm" type="button" id="deletePlantBtn">Delete</button>
       <button class="btn btn-secondary" type="button" id="editPlantBtn">Edit</button>
-      <button class="btn btn-secondary" type="button" id="closePlantBtn">Close</button>
     </div>`);
-  document.getElementById('closePlantBtn').addEventListener('click', closeModal);
+  document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
   document.getElementById('deletePlantBtn').addEventListener('click', async () => {
     if (!confirm('Delete this plant?')) return;
     await API.deletePlant(plant.id);
-    closeModal();
+    closeDrawer();
     toast('Plant deleted');
     renderPage();
   });
   document.getElementById('editPlantBtn').addEventListener('click', () => {
-    closeModal();
+    closeDrawer();
     showEditPlantModal(plant);
   });
   if (canFail) {
     document.getElementById('failPlantBtn').addEventListener('click', () => {
-      closeModal();
+      closeDrawer();
       showMarkPlantFailedModal(plant);
     });
   }
@@ -2007,89 +2196,89 @@ async function renderSeeds(main) {
       </button>`;
     }).join('')}</div>`;
     el.querySelectorAll('[data-seed-id]').forEach(card => {
-      card.addEventListener('click', () => {
-        state._selectedSeedId = card.dataset.seedId;
-        navigateTo('seed-detail');
-      });
+      card.addEventListener('click', () => showSeedDetail(card.dataset.seedId));
     });
   } catch {
     document.getElementById('seedsList').innerHTML = '<p class="empty-text">Failed to load seeds.</p>';
   }
 }
 
-async function renderSeedDetail(main) {
-  const seedId = state._selectedSeedId;
-  if (!seedId) { navigateTo('seeds'); return; }
-
+async function showSeedDetail(seedId) {
+  if (!seedId) return;
   const isAdmin = state.user?.is_admin;
-  main.innerHTML = '<p class="loading-text">Loading...</p>';
+
+  showDrawer(`
+    <div class="drawer-header">
+      <h2 id="drawerTitle">Loading...</h2>
+      <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
+    </div>
+    <div class="drawer-body"><p class="loading-text">Loading...</p></div>`);
+  document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
 
   try {
     const [seed, metrics] = await Promise.all([API.getSeed(seedId), API.getSeedMetrics(seedId)]);
+    const drawer = document.getElementById('drawer');
+    if (!drawer || !drawer.classList.contains('open')) return; // drawer was closed
 
-    main.innerHTML = `
-      <header class="page-header">
-        <div>
-          <p class="subtitle"><button class="link-btn" type="button" id="backToSeeds">Seeds</button> / ${esc(seed.name)}</p>
-          <h1>${esc(seed.name)}</h1>
-        </div>
-        ${isAdmin ? `<div class="header-actions">
-          <button class="btn btn-secondary btn-sm" type="button" id="editSeedBtn">Edit</button>
-          <button class="btn btn-danger btn-sm" type="button" id="deleteSeedBtn">Delete</button>
-        </div>` : ''}
-      </header>
-      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
-        ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
+    drawer.innerHTML = `
+      <div class="drawer-header">
+        <h2 id="drawerTitle">${esc(seed.name)}</h2>
+        <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
       </div>
-      <div class="content-split">
-        <div>
-          <h2 class="section-heading">Inventory Details</h2>
-          <div class="card">
-            <div class="detail-grid">
-              <div><div class="detail-label">Quantity</div><div class="detail-value">${seed.quantity} ${esc(seed.quantity_unit)}</div></div>
-              <div><div class="detail-label">Supplier</div><div class="detail-value">${esc(seed.supplier) || '--'}</div></div>
-              <div><div class="detail-label">Purchase Date</div><div class="detail-value">${formatDate(seed.purchase_date)}</div></div>
-              <div><div class="detail-label">Purchase Price</div><div class="detail-value">${seed.purchase_price != null ? '$' + seed.purchase_price.toFixed(2) : '--'}</div></div>
-              <div><div class="detail-label">Expected Germ. Rate</div><div class="detail-value">${seed.expected_germination_rate != null ? seed.expected_germination_rate + '%' : '--'}</div></div>
-              <div><div class="detail-label">Days to Germination</div><div class="detail-value">${seed.days_to_germination ?? '--'}</div></div>
-            </div>
-            ${seed.notes ? `<div class="detail-notes">${esc(seed.notes)}</div>` : ''}
-          </div>
+      <div class="drawer-body">
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
+          ${seed.supplier ? `<span class="badge badge-purple">${esc(seed.supplier)}</span>` : ''}
         </div>
-        <div>
-          <h2 class="section-heading">Performance Metrics</h2>
-          <div class="card">
-            <div class="grid-2" style="margin-bottom:16px">
-              <div class="metric-card"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${metrics.total_plants}</div><div class="metric-label">Total Plants</div></div></div>
-              <div class="metric-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">check_circle</span></div><div><div class="metric-value">${metrics.past_germination}</div><div class="metric-label">Past Germination</div></div></div>
-              <div class="metric-card"><div class="metric-icon ${metrics.germination_rate != null && metrics.germination_rate >= 70 ? 'green' : metrics.germination_rate != null && metrics.germination_rate >= 40 ? 'amber' : 'red'}" aria-hidden="true"><span class="material-symbols-outlined">percent</span></div><div><div class="metric-value">${metrics.germination_rate != null ? metrics.germination_rate + '%' : '--'}</div><div class="metric-label">Germination Rate</div></div></div>
-              <div class="metric-card"><div class="metric-icon red" aria-hidden="true"><span class="material-symbols-outlined">cancel</span></div><div><div class="metric-value">${metrics.total_failures}</div><div class="metric-label">Failures</div></div></div>
-            </div>
-            ${metrics.failures.length ? `
-              <h3 style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px">Failure Breakdown</h3>
-              ${metrics.failures.map(f => `<div class="settings-item" style="padding:8px 0">
-                <div><div class="settings-item-label">${esc(f.failure_stage)}${f.failure_reason ? ': ' + esc(f.failure_reason) : ''}</div></div>
-                <span class="badge badge-red">${f.count}</span>
-              </div>`).join('')}
-            ` : '<p class="empty-text">No failures recorded.</p>'}
-          </div>
+        <h3 class="section-heading" style="margin-top:0">Inventory Details</h3>
+        <div class="detail-grid">
+          <div><div class="detail-label">Quantity</div><div class="detail-value">${seed.quantity} ${esc(seed.quantity_unit)}</div></div>
+          <div><div class="detail-label">Supplier</div><div class="detail-value">${esc(seed.supplier) || '--'}</div></div>
+          <div><div class="detail-label">Purchase Date</div><div class="detail-value">${formatDate(seed.purchase_date)}</div></div>
+          <div><div class="detail-label">Purchase Price</div><div class="detail-value">${seed.purchase_price != null ? '$' + seed.purchase_price.toFixed(2) : '--'}</div></div>
+          <div><div class="detail-label">Expected Germ. Rate</div><div class="detail-value">${seed.expected_germination_rate != null ? seed.expected_germination_rate + '%' : '--'}</div></div>
+          <div><div class="detail-label">Days to Germination</div><div class="detail-value">${seed.days_to_germination ?? '--'}</div></div>
         </div>
+        ${seed.notes ? `<div class="detail-notes">${esc(seed.notes)}</div>` : ''}
+        <h3 class="section-heading">Performance Metrics</h3>
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="metric-card"><div class="metric-icon green" aria-hidden="true"><span class="material-symbols-outlined">potted_plant</span></div><div><div class="metric-value">${metrics.total_plants}</div><div class="metric-label">Total Plants</div></div></div>
+          <div class="metric-card"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">check_circle</span></div><div><div class="metric-value">${metrics.past_germination}</div><div class="metric-label">Past Germination</div></div></div>
+          <div class="metric-card"><div class="metric-icon ${metrics.germination_rate != null && metrics.germination_rate >= 70 ? 'green' : metrics.germination_rate != null && metrics.germination_rate >= 40 ? 'amber' : 'red'}" aria-hidden="true"><span class="material-symbols-outlined">percent</span></div><div><div class="metric-value">${metrics.germination_rate != null ? metrics.germination_rate + '%' : '--'}</div><div class="metric-label">Germination Rate</div></div></div>
+          <div class="metric-card"><div class="metric-icon red" aria-hidden="true"><span class="material-symbols-outlined">cancel</span></div><div><div class="metric-value">${metrics.total_failures}</div><div class="metric-label">Failures</div></div></div>
+        </div>
+        ${metrics.failures.length ? `
+          <h3 style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px">Failure Breakdown</h3>
+          ${metrics.failures.map(f => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+            <span>${esc(f.failure_stage)}${f.failure_reason ? ': ' + esc(f.failure_reason) : ''}</span>
+            <span class="badge badge-red">${f.count}</span>
+          </div>`).join('')}
+        ` : '<p class="empty-text">No failures recorded.</p>'}
       </div>
-    `;
+      ${isAdmin ? `<div class="drawer-actions">
+        <button class="btn btn-danger btn-sm" type="button" id="deleteSeedBtn">Delete</button>
+        <button class="btn btn-secondary" type="button" id="editSeedBtn">Edit</button>
+      </div>` : ''}`;
 
-    document.getElementById('backToSeeds').addEventListener('click', () => navigateTo('seeds'));
+    document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
     if (isAdmin) {
-      document.getElementById('editSeedBtn').addEventListener('click', () => showEditSeedModal(seed));
+      document.getElementById('editSeedBtn').addEventListener('click', () => {
+        closeDrawer();
+        showEditSeedModal(seed);
+      });
       document.getElementById('deleteSeedBtn').addEventListener('click', async () => {
         if (!confirm('Delete this seed? Plants will keep their data but lose the seed reference.')) return;
         await API.deleteSeed(seed.id);
+        closeDrawer();
         toast('Seed deleted');
-        navigateTo('seeds');
+        renderPage();
       });
     }
   } catch {
-    main.innerHTML = '<p class="empty-text">Failed to load seed details.</p>';
+    const drawer = document.getElementById('drawer');
+    if (drawer && drawer.classList.contains('open')) {
+      drawer.querySelector('.drawer-body').innerHTML = '<p class="empty-text">Failed to load seed details.</p>';
+    }
   }
 }
 
@@ -2491,7 +2680,9 @@ function showEditLocationModal(location) {
     await API.updateLocation(location.id, { name: fd.get('name'), description: fd.get('description') || null, sort_order: parseInt(fd.get('sort_order')) || 0 });
     closeModal();
     toast('Location updated');
-    loadLocationsPanel();
+    state.locations = await API.getLocations().catch(() => state.locations);
+    if (state.currentPage === 'locations') renderPage();
+    else loadLocationsPanel();
   });
 }
 
