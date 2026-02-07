@@ -10,6 +10,8 @@ let state = {
   selectedGardenId: null,
   currentPage: 'dashboard',
   theme: localStorage.getItem('theme') || 'light',
+  accent: localStorage.getItem('accent') || 'emerald',
+  customAccent: localStorage.getItem('customAccent') || '#6366f1',
   logsChart: null,
 };
 
@@ -35,6 +37,7 @@ function toast(message, type = 'success') {
 // === Init ===
 document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(state.theme);
+  applyAccent(state.accent);
   await checkAuth();
 });
 
@@ -365,6 +368,42 @@ function applyTheme(theme) {
   localStorage.setItem('theme', theme);
 }
 
+function applyAccent(accent, customColor) {
+  const root = document.documentElement;
+  // Clear any previous custom inline vars
+  root.style.removeProperty('--primary');
+  root.style.removeProperty('--primary-hover');
+  root.style.removeProperty('--primary-light');
+  root.style.removeProperty('--focus-ring');
+
+  if (accent === 'custom') {
+    const hex = customColor || state.customAccent;
+    state.customAccent = hex;
+    localStorage.setItem('customAccent', hex);
+    root.removeAttribute('data-accent');
+    // Parse hex to r,g,b
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    const isDark = state.theme === 'dark';
+    // Lighter variant for dark mode, darker for light
+    const hover = isDark
+      ? `rgb(${Math.min(r+40,255)},${Math.min(g+40,255)},${Math.min(b+40,255)})`
+      : `rgb(${Math.max(r-20,0)},${Math.max(g-20,0)},${Math.max(b-20,0)})`;
+    const light = isDark
+      ? `rgba(${r},${g},${b},0.15)`
+      : `rgba(${r},${g},${b},0.12)`;
+    root.style.setProperty('--primary', hex);
+    root.style.setProperty('--primary-hover', hover);
+    root.style.setProperty('--primary-light', light);
+    root.style.setProperty('--focus-ring', `0 0 0 3px rgba(${r},${g},${b},0.4)`);
+  } else if (accent === 'emerald') {
+    root.removeAttribute('data-accent');
+  } else {
+    root.setAttribute('data-accent', accent);
+  }
+  state.accent = accent;
+  localStorage.setItem('accent', accent);
+}
+
 function setupNav() {
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', e => {
@@ -446,7 +485,7 @@ function getGardenCategory(garden) {
   return 'hydroponic';
 }
 
-const CATEGORY_ICONS = { hydroponic: 'water_drop', soil: 'public', container: 'potted_plant', aquaponics: 'phishing' };
+const CATEGORY_ICONS = { hydroponic: 'water_drop', soil: 'psychiatry', container: 'potted_plant', aquaponics: 'phishing' };
 const CATEGORY_COLORS = { hydroponic: 'blue', soil: 'green', container: 'amber', aquaponics: 'purple' };
 
 function renderPage() {
@@ -761,7 +800,7 @@ async function renderDashboard(main) {
         const category = getGardenCategory(garden);
         const catColor = CATEGORY_COLORS[category] || 'green';
         const catIcon = CATEGORY_ICONS[category] || 'eco';
-        const iconColor = catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary';
+        const iconColor = catColor === 'green' ? 'green' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'green';
         return `<tr class="dash-garden-row" data-garden-id="${garden.id}">
           <td class="dgr-name"><span class="material-symbols-outlined" style="color:var(--${iconColor});font-size:20px;vertical-align:middle">${catIcon}</span> ${esc(garden.name)}</td>
           <td class="dgr-badges"><span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>${garden.location_name ? ` <span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}</td>
@@ -841,7 +880,7 @@ async function renderGardensPage(main) {
     const catColor = CATEGORY_COLORS[category] || 'green';
     const catIcon = CATEGORY_ICONS[category] || 'eco';
     return `<button class="garden-row" type="button" data-garden-id="${garden.id}">
-      <span class="material-symbols-outlined garden-row-icon" style="color:var(--${catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary'})">${catIcon}</span>
+      <span class="material-symbols-outlined garden-row-icon" style="color:var(--${catColor === 'green' ? 'green' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'green'})">${catIcon}</span>
       <span class="garden-row-name">${esc(garden.name)}</span>
       <span class="garden-row-badges">
         <span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>
@@ -1235,7 +1274,7 @@ async function renderLocationsPage(main) {
   }
   el.innerHTML = `<div class="card" style="padding:0">${state.locations.map(loc => `
     <button class="garden-row" type="button" data-location-id="${loc.id}">
-      <span class="material-symbols-outlined garden-row-icon" style="color:var(--secondary)">location_on</span>
+      <span class="material-symbols-outlined garden-row-icon" style="color:var(--text-secondary)">location_on</span>
       <span class="garden-row-name">${esc(loc.name)}</span>
       <span class="garden-row-badges">
         <span class="badge badge-blue">${loc.garden_count} garden${loc.garden_count !== 1 ? 's' : ''}</span>
@@ -1337,7 +1376,7 @@ async function renderLogs(main) {
   const category = getGardenCategory(garden);
   const catColor = CATEGORY_COLORS[category] || 'green';
   const catIcon = CATEGORY_ICONS[category] || 'eco';
-  const iconColor = catColor === 'green' ? 'primary' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'primary';
+  const iconColor = catColor === 'green' ? 'green' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'green';
 
   // Default date range: last 30 days
   const today = new Date().toISOString().split('T')[0];
@@ -2194,7 +2233,7 @@ async function renderSeeds(main) {
     el.innerHTML = `<div class="card" style="padding:0">${state.seeds.map(seed => {
       const rate = seed.plant_count > 0 ? Math.round(((seed.plant_count - seed.failure_count) / seed.plant_count) * 100) : null;
       return `<button class="garden-row" type="button" data-seed-id="${seed.id}">
-        <span class="material-symbols-outlined garden-row-icon">grass</span>
+        <span class="material-symbols-outlined garden-row-icon">grain</span>
         <span class="garden-row-name">${esc(seed.name)}</span>
         <span class="garden-row-badges">
           ${seed.variety ? `<span class="badge badge-green">${esc(seed.variety)}</span>` : ''}
@@ -2431,6 +2470,20 @@ async function renderSettings(main) {
             <div><div class="settings-item-label">Dark Mode</div><div class="settings-item-desc">Toggle between light and dark theme</div></div>
             <button class="toggle ${isDark ? 'active' : ''}" type="button" id="themeToggle" role="switch" aria-checked="${isDark}" aria-label="Dark mode"></button>
           </div>
+          <div class="settings-item">
+            <div><div class="settings-item-label">Color Scheme</div><div class="settings-item-desc">Choose an accent color</div></div>
+            <div class="accent-picker">
+              <button class="accent-swatch${state.accent === 'emerald' ? ' active' : ''}" data-accent="emerald" style="background:#059669" title="Emerald" aria-label="Emerald accent"></button>
+              <button class="accent-swatch${state.accent === 'blue' ? ' active' : ''}" data-accent="blue" style="background:#2563eb" title="Blue" aria-label="Blue accent"></button>
+              <button class="accent-swatch${state.accent === 'purple' ? ' active' : ''}" data-accent="purple" style="background:#7c3aed" title="Purple" aria-label="Purple accent"></button>
+              <button class="accent-swatch${state.accent === 'rose' ? ' active' : ''}" data-accent="rose" style="background:#e11d48" title="Rose" aria-label="Rose accent"></button>
+              <button class="accent-swatch${state.accent === 'amber' ? ' active' : ''}" data-accent="amber" style="background:#d97706" title="Amber" aria-label="Amber accent"></button>
+              <button class="accent-swatch${state.accent === 'teal' ? ' active' : ''}" data-accent="teal" style="background:#0d9488" title="Teal" aria-label="Teal accent"></button>
+              <button class="accent-swatch accent-swatch-custom${state.accent === 'custom' ? ' active' : ''}" data-accent="custom" style="background:${state.accent === 'custom' ? state.customAccent : ''}" title="Custom" aria-label="Custom accent">
+                <input type="color" class="accent-color-input" value="${state.customAccent}" tabindex="-1" aria-label="Pick custom color">
+              </button>
+            </div>
+          </div>
           ${isAdmin ? `
           <div class="settings-item">
             <div><div class="settings-item-label">Default Units</div><div class="settings-item-desc">${settings.default_units === 'imperial' ? 'Imperial (°F, in)' : 'Metric (°C, cm)'}</div></div>
@@ -2498,8 +2551,29 @@ async function renderSettings(main) {
   document.getElementById('themeToggle').addEventListener('click', function() {
     const newTheme = state.theme === 'dark' ? 'light' : 'dark';
     applyTheme(newTheme);
+    if (state.accent === 'custom') applyAccent('custom');
     this.classList.toggle('active', newTheme === 'dark');
     this.setAttribute('aria-checked', String(newTheme === 'dark'));
+  });
+
+  document.querySelectorAll('.accent-swatch').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      if (this.dataset.accent === 'custom') {
+        this.querySelector('.accent-color-input').click();
+        return;
+      }
+      document.querySelectorAll('.accent-swatch').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      applyAccent(this.dataset.accent);
+    });
+  });
+
+  document.querySelector('.accent-color-input').addEventListener('input', function(e) {
+    const swatch = this.closest('.accent-swatch');
+    swatch.style.background = this.value;
+    document.querySelectorAll('.accent-swatch').forEach(b => b.classList.remove('active'));
+    swatch.classList.add('active');
+    applyAccent('custom', this.value);
   });
 
   // Admin sections
