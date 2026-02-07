@@ -83,11 +83,11 @@ async function enterApp() {
       state.selectedGardenId = state.gardens[0].id;
     }
   } catch { /* continue with empty data */ }
-  window.addEventListener('hashchange', routeFromHash);
-  if (location.hash && location.hash !== '#/') {
-    routeFromHash();
+  window.addEventListener('popstate', routeFromPath);
+  if (location.pathname !== '/') {
+    routeFromPath();
   } else {
-    location.hash = '#/dashboard';
+    navigateTo('dashboard');
   }
 }
 
@@ -377,10 +377,9 @@ function setupNav() {
 function navigateTo(page, data) {
   state.currentPage = page;
   if (data) Object.assign(state, data);
-  // Build hash URL
-  let hash = '#/' + page;
-  if (page === 'garden-detail' && state.selectedGardenId) hash += '/' + state.selectedGardenId;
-  if (location.hash !== hash) history.pushState(null, '', hash);
+  let path = '/' + page;
+  if (page === 'garden-detail' && state.selectedGardenId) path += '/' + state.selectedGardenId;
+  if (location.pathname !== path) history.pushState(null, '', path);
   updateNavHighlight(page);
   renderPage();
   announce(`Navigated to ${page.replace('-', ' ')}`);
@@ -395,9 +394,9 @@ function updateNavHighlight(page) {
   });
 }
 
-function routeFromHash() {
-  const hash = location.hash || '#/dashboard';
-  const parts = hash.replace('#/', '').split('/');
+function routeFromPath() {
+  const path = location.pathname || '/dashboard';
+  const parts = path.replace(/^\//, '').split('/');
   const page = parts[0] || 'dashboard';
   const id = parts[1] || null;
   if (page === 'garden-detail' && id) state.selectedGardenId = id;
@@ -727,7 +726,7 @@ async function renderDashboard(main) {
       </section>
 
       <section aria-label="Gardens" style="margin-top:24px">
-        <div class="section-header"><h2 class="section-heading" style="margin:0">My Gardens</h2><a class="link-btn" href="#/gardens">View all</a></div>
+        <div class="section-header"><h2 class="section-heading" style="margin:0">My Gardens</h2><button class="link-btn" onclick="navigateTo('gardens')">View all</button></div>
         <div id="dashGardenGrid"></div>
       </section>
 
@@ -1945,11 +1944,15 @@ function showEditTaskModal(task) {
 // === PLANTS
 // ============================================
 async function renderPlants(main) {
+  const locations = [...new Set(state.gardens.map(g => g.location_name).filter(Boolean))].sort();
   main.innerHTML = `<header class="page-header"><div><h1>All Plants</h1></div>
-    <div style="display:flex;gap:8px">
+    ${state.gardens.length ? '<button class="btn btn-primary" type="button" id="addPlantGlobalBtn">+ Add Plant</button>' : ''}
+    </header>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <select class="form-input" id="gardenFilter" style="width:auto" aria-label="Filter by garden"><option value="">All Gardens</option>${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>
+      ${locations.length ? `<select class="form-input" id="locationFilter" style="width:auto" aria-label="Filter by location"><option value="">All Locations</option>${locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select>` : ''}
       <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
-      ${state.gardens.length ? '<button class="btn btn-primary" type="button" id="addPlantGlobalBtn">+ Add Plant</button>' : ''}
-    </div></header>
+    </div>
     <div id="plantsList"><p class="loading-text">Loading...</p></div>`;
 
   if (state.gardens.length) {
@@ -1964,16 +1967,26 @@ async function renderPlants(main) {
   const allPlantArrays = await Promise.all(state.gardens.map(g => API.getPlants(g.id)));
   const allPlants = [];
   allPlantArrays.forEach((plants, i) => {
-    plants.forEach(p => { p._gardenName = state.gardens[i].name; p._gardenId = state.gardens[i].id; allPlants.push(p); });
+    const g = state.gardens[i];
+    plants.forEach(p => { p._gardenName = g.name; p._gardenId = g.id; p._locationName = g.location_name || ''; allPlants.push(p); });
   });
   window._plants = allPlants;
-  renderPlantsGrid(allPlants.filter(p => p.is_active), document.getElementById('plantsList'), true);
 
-  document.getElementById('stageFilter').addEventListener('change', e => {
-    const stage = e.target.value;
-    const filtered = stage ? allPlants.filter(p => p.current_stage === stage && p.is_active) : allPlants.filter(p => p.is_active);
+  function applyPlantFilters() {
+    const garden = document.getElementById('gardenFilter').value;
+    const location = document.getElementById('locationFilter')?.value || '';
+    const stage = document.getElementById('stageFilter').value;
+    const filtered = allPlants.filter(p => p.is_active
+      && (!garden || p._gardenId === garden)
+      && (!location || p._locationName === location)
+      && (!stage || p.current_stage === stage));
     renderPlantsGrid(filtered, document.getElementById('plantsList'), true);
-  });
+  }
+
+  applyPlantFilters();
+  document.getElementById('gardenFilter').addEventListener('change', applyPlantFilters);
+  document.getElementById('locationFilter')?.addEventListener('change', applyPlantFilters);
+  document.getElementById('stageFilter').addEventListener('change', applyPlantFilters);
 }
 
 function renderPlantsGrid(plants, el, showGarden = false) {
@@ -2388,78 +2401,95 @@ async function renderSettings(main) {
   let settings = {};
   try { settings = await API.getSettings(); } catch { /* ok */ }
 
+  const initials = (state.user?.display_name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
   main.innerHTML = `
-    <header class="page-header"><div><h1>Settings</h1></div>
-      <button class="btn btn-secondary" type="button" id="logoutBtn">Sign Out</button></header>
-    <div style="max-width:800px">
-      <section aria-label="Account settings">
-        <h2 class="section-heading">Account</h2>
-        <div class="settings-item">
-          <div><div class="settings-item-label">${esc(state.user?.display_name)}</div>
-            <div class="settings-item-desc">@${esc(state.user?.username)} ${isAdmin ? '(Admin)' : ''}</div></div>
+    <header class="page-header"><div><h1>Settings</h1></div></header>
+    <div style="max-width:720px">
+
+      <div class="settings-profile" aria-label="Account">
+        <div class="settings-avatar">${initials}</div>
+        <div class="settings-profile-info">
+          <div class="settings-profile-name">${esc(state.user?.display_name)}</div>
+          <div class="settings-profile-meta">
+            <span>@${esc(state.user?.username)}</span>
+            ${isAdmin ? '<span class="badge badge-purple">Admin</span>' : ''}
+          </div>
+        </div>
+        <div class="settings-profile-actions">
           <button class="btn btn-secondary btn-sm" type="button" id="changePasswordBtn">Change Password</button>
+          <button class="btn btn-secondary btn-sm" type="button" id="logoutBtn">Sign Out</button>
         </div>
-      </section>
+      </div>
 
-      <section aria-label="Preferences">
-        <h2 class="section-heading">Preferences</h2>
-        <div class="settings-item">
-          <div><div class="settings-item-label">Dark Mode</div><div class="settings-item-desc">Toggle between light and dark theme</div></div>
-          <button class="toggle ${isDark ? 'active' : ''}" type="button" id="themeToggle" role="switch" aria-checked="${isDark}" aria-label="Dark mode"></button>
+      <section class="settings-section" aria-label="Preferences">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">palette</span> Appearance & Units
         </div>
-        ${isAdmin ? `
-        <div class="settings-item">
-          <div><div class="settings-item-label">Default Units</div><div class="settings-item-desc">${settings.default_units === 'imperial' ? 'Imperial (°F, in)' : 'Metric (°C, cm)'}</div></div>
-          <button class="btn btn-secondary btn-sm" type="button" id="editUnitsBtn">Edit</button>
+        <div class="settings-section-body">
+          <div class="settings-item">
+            <div><div class="settings-item-label">Dark Mode</div><div class="settings-item-desc">Toggle between light and dark theme</div></div>
+            <button class="toggle ${isDark ? 'active' : ''}" type="button" id="themeToggle" role="switch" aria-checked="${isDark}" aria-label="Dark mode"></button>
+          </div>
+          ${isAdmin ? `
+          <div class="settings-item">
+            <div><div class="settings-item-label">Default Units</div><div class="settings-item-desc">${settings.default_units === 'imperial' ? 'Imperial (°F, in)' : 'Metric (°C, cm)'}</div></div>
+            <button class="btn btn-secondary btn-sm" type="button" id="editUnitsBtn">Change</button>
+          </div>` : ''}
         </div>
-        ` : ''}
-      </section>
-
-      <section aria-label="Garden management">
-        <h2 class="section-heading">Garden Management</h2>
-        <div id="settingsGardens"></div>
       </section>
 
       ${isAdmin ? `
-      <section aria-label="Locations">
-        <h2 class="section-heading">Locations</h2>
-        <div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" type="button" id="createLocationBtn">+ Add Location</button></div>
-        <div id="locationsList"><p class="loading-text">Loading...</p></div>
+      <section class="settings-section" aria-label="Garden types">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">category</span> Garden Types
+        </div>
+        <div class="settings-section-body" id="settingsGardenTypes"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
 
-      <section aria-label="Garden types">
-        <h2 class="section-heading">Garden Types</h2>
-        <div id="settingsGardenTypes"><p class="loading-text">Loading...</p></div>
+      <section class="settings-section" aria-label="User management">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">group</span> Users
+          <button class="btn btn-primary btn-sm section-action" type="button" id="createUserBtn">+ Create</button>
+        </div>
+        <div class="settings-section-body" id="usersList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
 
-      <section aria-label="User management">
-        <h2 class="section-heading">User Management</h2>
-        <div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" type="button" id="createUserBtn">+ Create User</button></div>
-        <div id="usersList"><p class="loading-text">Loading...</p></div>
+      <section class="settings-section" aria-label="Devices">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">sensors</span> Devices & Sensors
+          <button class="btn btn-primary btn-sm section-action" type="button" id="createDeviceBtn">+ Add</button>
+        </div>
+        <div class="settings-section-body" id="devicesList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
 
-      <section aria-label="Devices">
-        <h2 class="section-heading">Devices & Sensors</h2>
-        <div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" type="button" id="createDeviceBtn">+ Add Device</button></div>
-        <div id="devicesList"><p class="loading-text">Loading...</p></div>
+      <section class="settings-section" aria-label="Webhooks">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">webhook</span> Webhooks
+          <button class="btn btn-primary btn-sm section-action" type="button" id="createWebhookBtn">+ Add</button>
+        </div>
+        <div class="settings-section-body" id="webhooksList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
 
-      <section aria-label="Webhooks">
-        <h2 class="section-heading">Webhooks</h2>
-        <div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" type="button" id="createWebhookBtn">+ Add Webhook</button></div>
-        <div id="webhooksList"><p class="loading-text">Loading...</p></div>
-      </section>
-
-      <section aria-label="Audit log">
-        <h2 class="section-heading">Audit Log</h2>
-        <div class="card" style="padding:0;overflow-x:auto" id="auditContainer"><p style="padding:20px" class="loading-text">Loading...</p></div>
+      <section class="settings-section" aria-label="Audit log">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">history</span> Audit Log
+        </div>
+        <div style="overflow-x:auto" id="auditContainer"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
       </section>
       ` : ''}
 
-      <section aria-label="About">
-        <h2 class="section-heading">About</h2>
-        <div class="settings-item"><div><div class="settings-item-label">CultiVue</div><div class="settings-item-desc">Version 2.0.0 — Garden Management System</div></div></div>
+      <section class="settings-section" aria-label="About">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">info</span> About
+        </div>
+        <div class="settings-section-body">
+          <div class="settings-item">
+            <div><div class="settings-item-label">CultiVue</div><div class="settings-item-desc">Version 2.0.0 — Garden Management System</div></div>
+          </div>
+        </div>
       </section>
+
     </div>`;
 
   // Event listeners
@@ -2472,23 +2502,9 @@ async function renderSettings(main) {
     this.setAttribute('aria-checked', String(newTheme === 'dark'));
   });
 
-  // Gardens list
-  const gardensEl = document.getElementById('settingsGardens');
-  state.gardens.forEach(g => {
-    const div = document.createElement('div');
-    div.className = 'settings-item';
-    div.innerHTML = `<div><div class="settings-item-label">${esc(g.name)}</div><div class="settings-item-desc">${esc(getGardenTypeDisplay(g))} — Started ${formatDate(g.start_date)}</div></div>
-      <button class="btn btn-danger btn-sm" type="button" data-delete-garden="${g.id}">Delete</button>`;
-    gardensEl.appendChild(div);
-  });
-  gardensEl.querySelectorAll('[data-delete-garden]').forEach(btn => {
-    btn.addEventListener('click', () => deleteGarden(btn.dataset.deleteGarden));
-  });
-
   // Admin sections
   if (isAdmin) {
     document.getElementById('createUserBtn').addEventListener('click', showCreateUserModal);
-    document.getElementById('createLocationBtn').addEventListener('click', showCreateLocationModal);
     document.getElementById('editUnitsBtn')?.addEventListener('click', () => {
       const current = settings.default_units === 'imperial' ? 'imperial' : 'metric';
       const newUnits = current === 'metric' ? 'imperial' : 'metric';
@@ -2497,7 +2513,6 @@ async function renderSettings(main) {
     loadUsersPanel();
     loadAuditPanel();
     loadGardenTypesSettings();
-    loadLocationsPanel();
     loadDevicesPanel();
     loadWebhooksPanel();
     document.getElementById('createDeviceBtn').addEventListener('click', showCreateDeviceModal);
@@ -2523,12 +2538,9 @@ async function loadGardenTypesSettings() {
         </div>`).join('')}
       </div>
     `).join('');
-
-    // Note: Toggling garden types requires an admin API endpoint not yet implemented,
-    // so these toggles are visual only for now. The wizard handles initial setup.
   } catch {
     const el = document.getElementById('settingsGardenTypes');
-    if (el) el.innerHTML = '<p class="empty-text">Could not load garden types.</p>';
+    if (el) el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load garden types.</div></div>';
   }
 }
 
@@ -2541,13 +2553,13 @@ async function loadUsersPanel() {
       <div class="settings-item">
         <div>
           <div class="settings-item-label">${esc(u.display_name)} <span class="secondary-text">@${esc(u.username)}</span>
-            ${u.is_admin ? '<span class="badge badge-purple">Admin</span>' : ''}
-            ${!u.is_active ? '<span class="badge badge-red">Disabled</span>' : ''}
-            ${u.must_change_password ? '<span class="badge badge-amber">Temp password</span>' : ''}</div>
+            ${u.is_admin ? ' <span class="badge badge-purple">Admin</span>' : ''}
+            ${!u.is_active ? ' <span class="badge badge-red">Disabled</span>' : ''}
+            ${u.must_change_password ? ' <span class="badge badge-amber">Temp password</span>' : ''}</div>
           <div class="settings-item-desc">Created ${formatDate(u.created_at)}</div>
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-secondary btn-sm" type="button" data-reset-pw="${u.id}" data-username="${esc(u.username)}">Reset Password</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-reset-pw="${u.id}" data-username="${esc(u.username)}">Reset</button>
           ${u.id !== state.user.id ? `<button class="btn ${u.is_active ? 'btn-danger' : 'btn-primary'} btn-sm" type="button" data-toggle-user="${u.id}" data-active="${!u.is_active}">${u.is_active ? 'Disable' : 'Enable'}</button>` : ''}
         </div>
       </div>`).join('');
@@ -2572,7 +2584,7 @@ async function loadAuditPanel() {
     const logs = await API.getAuditLogs(50);
     const el = document.getElementById('auditContainer');
     if (!el) return;
-    if (!logs.length) { el.innerHTML = '<p style="padding:20px" class="empty-text">No audit events yet.</p>'; return; }
+    if (!logs.length) { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">No audit events yet.</div></div>'; return; }
     el.innerHTML = `<table class="audit-table"><thead><tr><th scope="col">Time</th><th scope="col">User</th><th scope="col">Action</th><th scope="col">Type</th><th scope="col">Details</th></tr></thead><tbody>
       ${logs.map(l => {
         const actionClass = ['create','update','delete','login','login_failed','register','setup'].includes(l.action) ? l.action : '';
@@ -2590,7 +2602,7 @@ async function loadLocationsPanel() {
   try {
     const locations = await API.getLocations();
     state.locations = locations;
-    if (!locations.length) { el.innerHTML = '<p class="empty-text">No locations yet.</p>'; return; }
+    if (!locations.length) { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">No locations yet.</div></div>'; return; }
     el.innerHTML = locations.map(l => `
       <div class="settings-item">
         <div>
@@ -2617,7 +2629,7 @@ async function loadLocationsPanel() {
         loadLocationsPanel();
       });
     });
-  } catch { el.innerHTML = '<p class="empty-text">Could not load locations.</p>'; }
+  } catch { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load locations.</div></div>'; }
 }
 
 function showCreateLocationModal(fromLocationsPage) {
@@ -2692,7 +2704,7 @@ async function loadDevicesPanel() {
   if (!el) return;
   try {
     const devices = await API.getDevices();
-    if (!devices.length) { el.innerHTML = '<p class="empty-text">No devices registered yet.</p>'; return; }
+    if (!devices.length) { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">No devices registered yet.</div></div>'; return; }
     el.innerHTML = devices.map(d => `
       <div class="settings-item">
         <div>
@@ -2721,7 +2733,7 @@ async function loadDevicesPanel() {
         loadDevicesPanel();
       });
     });
-  } catch { el.innerHTML = '<p class="empty-text">Could not load devices.</p>'; }
+  } catch { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load devices.</div></div>'; }
 }
 
 function showCreateDeviceModal() {
@@ -2828,7 +2840,7 @@ async function loadWebhooksPanel() {
   if (!el) return;
   try {
     const webhooks = await API.getWebhooks();
-    if (!webhooks.length) { el.innerHTML = '<p class="empty-text">No webhooks configured.</p>'; return; }
+    if (!webhooks.length) { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">No webhooks configured.</div></div>'; return; }
     el.innerHTML = webhooks.map(w => `
       <div class="settings-item">
         <div>
@@ -2863,7 +2875,7 @@ async function loadWebhooksPanel() {
         loadWebhooksPanel();
       });
     });
-  } catch { el.innerHTML = '<p class="empty-text">Could not load webhooks.</p>'; }
+  } catch { el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load webhooks.</div></div>'; }
 }
 
 function showCreateWebhookModal() {
