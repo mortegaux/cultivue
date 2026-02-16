@@ -1985,7 +1985,7 @@ function showEditTaskModal(task) {
 async function renderPlants(main) {
   const locations = [...new Set(state.gardens.map(g => g.location_name).filter(Boolean))].sort();
   main.innerHTML = `<header class="page-header"><div><h1>All Plants</h1></div>
-    ${state.gardens.length ? '<button class="btn btn-primary" type="button" id="addPlantGlobalBtn">+ Add Plant</button>' : ''}
+    ${state.gardens.length ? '<button class="btn btn-primary" type="button" id="addPlantGlobalBtn">+ New Plant</button>' : ''}
     </header>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       <select class="form-input" id="gardenFilter" style="width:auto" aria-label="Filter by garden"><option value="">All Gardens</option>${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>
@@ -2217,11 +2217,11 @@ async function renderSeeds(main) {
   const isAdmin = state.user?.is_admin;
   main.innerHTML = `
     <header class="page-header"><div><h1>Seed Inventory</h1></div>
-      ${isAdmin ? '<button class="btn btn-primary" type="button" id="addSeedBtn">+ Add Seed</button>' : ''}
+      <button class="btn btn-primary" type="button" id="addSeedBtn">+ New Seed</button>
     </header>
     <div id="seedsList"><p class="loading-text">Loading...</p></div>
   `;
-  if (isAdmin) document.getElementById('addSeedBtn').addEventListener('click', showAddSeedModal);
+  document.getElementById('addSeedBtn').addEventListener('click', showAddSeedModal);
 
   try {
     state.seeds = await API.getSeeds();
