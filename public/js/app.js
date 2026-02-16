@@ -2390,25 +2390,23 @@ async function showSeedDetail(seedId) {
           </div>`).join('')}
         ` : '<p class="empty-text">No failures recorded.</p>'}
       </div>
-      ${isAdmin ? `<div class="drawer-actions">
+      <div class="drawer-actions">
         <button class="btn btn-danger btn-sm" type="button" id="deleteSeedBtn">Delete</button>
         <button class="btn btn-secondary" type="button" id="editSeedBtn">Edit</button>
-      </div>` : ''}`;
+      </div>`;
 
     document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
-    if (isAdmin) {
-      document.getElementById('editSeedBtn').addEventListener('click', () => {
-        closeDrawer();
-        showEditSeedModal(seed);
-      });
-      document.getElementById('deleteSeedBtn').addEventListener('click', async () => {
-        if (!confirm('Delete this seed? Plants will keep their data but lose the seed reference.')) return;
-        await API.deleteSeed(seed.id);
-        closeDrawer();
-        toast('Seed deleted');
-        renderPage();
-      });
-    }
+    document.getElementById('editSeedBtn').addEventListener('click', () => {
+      closeDrawer();
+      showEditSeedModal(seed);
+    });
+    document.getElementById('deleteSeedBtn').addEventListener('click', async () => {
+      if (!confirm('Delete this seed? Plants will keep their data but lose the seed reference.')) return;
+      await API.deleteSeed(seed.id);
+      closeDrawer();
+      toast('Seed deleted');
+      renderPage();
+    });
   } catch {
     const drawer = document.getElementById('drawer');
     if (drawer && drawer.classList.contains('open')) {
@@ -2596,7 +2594,7 @@ async function renderCalendarPage(main) {
           <div class="calendar-zone-select">
             <select id="zoneSelect" aria-label="USDA Hardiness Zone">${zoneOptions()}</select>
           </div>
-          ${isAdmin ? '<button class="btn btn-primary" type="button" id="addCropBtn">+ New Crop</button>' : ''}
+          <button class="btn btn-primary" type="button" id="addCropBtn">+ New Crop</button>
         </div>
       </header>
 
@@ -2616,9 +2614,7 @@ async function renderCalendarPage(main) {
 
     bindGridEvents();
 
-    if (isAdmin) {
-      document.getElementById('addCropBtn').addEventListener('click', () => showAddCropModal(data.zone_group));
-    }
+    document.getElementById('addCropBtn').addEventListener('click', () => showAddCropModal(data.zone_group));
 
     main.querySelector('#zoneSelect').addEventListener('change', async (e) => {
       const newZone = parseInt(e.target.value, 10);
@@ -2690,32 +2686,30 @@ async function showCropDetail(cropName) {
           ${z.notes ? `<div class="detail-notes">${esc(z.notes)}</div>` : ''}
         `).join('')}
       </div>
-      ${isAdmin ? `<div class="drawer-actions">
+      <div class="drawer-actions">
         <button class="btn btn-danger btn-sm" type="button" id="deleteCropBtn">Delete All Zones</button>
         <button class="btn btn-secondary" type="button" id="editCropBtn">Edit</button>
-      </div>` : ''}`;
+      </div>`;
 
     document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
-    if (isAdmin) {
-      document.getElementById('editCropBtn').addEventListener('click', () => {
-        // Get the current zone_group from the page context
-        let settings = {};
-        try { settings = JSON.parse(document.getElementById('zoneSelect')?.value || ''); } catch { /* ok */ }
-        const currentZone = parseInt(document.getElementById('zoneSelect')?.value, 10) || 7;
-        const zg = currentZone <= 4 ? 'cold' : currentZone <= 7 ? 'temperate' : 'warm';
-        const editTarget = crop.zones[zg] || Object.values(crop.zones)[0];
-        closeDrawer();
-        showEditCropModal(editTarget);
-      });
-      document.getElementById('deleteCropBtn').addEventListener('click', async () => {
-        if (!confirm(`Delete "${crop.name}" from all zone groups? This cannot be undone.`)) return;
-        const firstId = Object.values(crop.zones)[0].id;
-        await API.deletePlantingCrop(firstId, true);
-        closeDrawer();
-        toast('Crop deleted');
-        renderPage();
-      });
-    }
+    document.getElementById('editCropBtn').addEventListener('click', () => {
+      // Get the current zone_group from the page context
+      let settings = {};
+      try { settings = JSON.parse(document.getElementById('zoneSelect')?.value || ''); } catch { /* ok */ }
+      const currentZone = parseInt(document.getElementById('zoneSelect')?.value, 10) || 7;
+      const zg = currentZone <= 4 ? 'cold' : currentZone <= 7 ? 'temperate' : 'warm';
+      const editTarget = crop.zones[zg] || Object.values(crop.zones)[0];
+      closeDrawer();
+      showEditCropModal(editTarget);
+    });
+    document.getElementById('deleteCropBtn').addEventListener('click', async () => {
+      if (!confirm(`Delete "${crop.name}" from all zone groups? This cannot be undone.`)) return;
+      const firstId = Object.values(crop.zones)[0].id;
+      await API.deletePlantingCrop(firstId, true);
+      closeDrawer();
+      toast('Crop deleted');
+      renderPage();
+    });
   } catch {
     const drawer = document.getElementById('drawer');
     if (drawer && drawer.classList.contains('open')) {

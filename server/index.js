@@ -342,7 +342,7 @@ app.get('/api/locations', requireAuth, (req, res) => {
   res.json(locations);
 });
 
-app.post('/api/locations', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/locations', requireAuth, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const description = V.str(req.body.description, 500);
   const sort_order = V.int(req.body.sort_order, 0, 10000) || 0;
@@ -358,7 +358,7 @@ app.post('/api/locations', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json({ id, name, description, sort_order, created_at: now, updated_at: now, garden_count: 0 });
 });
 
-app.put('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/locations/:id', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const name = V.reqStr(req.body.name, 100);
@@ -375,7 +375,7 @@ app.put('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/locations/:id', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const location = db.prepare('SELECT name FROM locations WHERE id=?').get(req.params.id);
@@ -414,7 +414,7 @@ app.get('/api/seeds/:id', requireAuth, (req, res) => {
   res.json(seed);
 });
 
-app.post('/api/seeds', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/seeds', requireAuth, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Seed name is required' });
 
@@ -438,7 +438,7 @@ app.post('/api/seeds', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json({ id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at: now, updated_at: now });
 });
 
-app.put('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/seeds/:id', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Invalid input' });
@@ -461,7 +461,7 @@ app.put('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/seeds/:id', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const seed = db.prepare('SELECT name FROM seeds WHERE id=?').get(req.params.id);
   db.prepare('DELETE FROM seeds WHERE id=?').run(req.params.id);
@@ -1298,7 +1298,7 @@ app.get('/api/planting-calendar/search', requireAuth, (req, res) => {
 });
 
 // 1b. Perenual API proxy — search
-app.get('/api/planting-calendar/lookup', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/planting-calendar/lookup', requireAuth, async (req, res) => {
   const q = V.str(req.query.q, 100);
   if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
 
@@ -1344,7 +1344,7 @@ app.get('/api/planting-calendar/lookup', requireAuth, requireAdmin, async (req, 
 });
 
 // 1c. Perenual details
-app.get('/api/planting-calendar/lookup/:id', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/planting-calendar/lookup/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid ID' });
 
@@ -1391,7 +1391,7 @@ app.get('/api/planting-calendar/lookup/:id', requireAuth, requireAdmin, async (r
 });
 
 // 1d. Create crop
-app.post('/api/planting-calendar', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/planting-calendar', requireAuth, (req, res) => {
   const CATEGORIES = ['vegetable', 'herb', 'fruit', 'flower'];
   const ZONE_GROUPS = ['cold', 'temperate', 'warm'];
 
@@ -1449,7 +1449,7 @@ app.get('/api/planting-calendar/crop/:name', requireAuth, (req, res) => {
 });
 
 // 1f. Update crop
-app.put('/api/planting-calendar/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/planting-calendar/:id', requireAuth, (req, res) => {
   const CATEGORIES = ['vegetable', 'herb', 'fruit', 'flower'];
 
   const existing = db.prepare('SELECT * FROM planting_index WHERE id = ?').get(req.params.id);
@@ -1480,7 +1480,7 @@ app.put('/api/planting-calendar/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // 1g. Delete crop
-app.delete('/api/planting-calendar/:id', requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/planting-calendar/:id', requireAuth, (req, res) => {
   const existing = db.prepare('SELECT * FROM planting_index WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Crop not found' });
 
