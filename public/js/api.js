@@ -136,6 +136,17 @@ const API = {
   getWebhookLogs(id, limit = 50) { return this.request('GET', `/api/webhooks/${id}/logs?limit=${limit}`); },
   testWebhook(id) { return this.request('POST', `/api/webhooks/${id}/test`); },
 
+  // Planting Calendar
+  getPlantingCalendar(zone) { return this.request('GET', `/api/planting-calendar${zone ? '?zone=' + zone : ''}`); },
+  getPlantingCalendarMonth(month) { return this.request('GET', `/api/planting-calendar/month/${month}`); },
+  searchPlantingCrops(q) { return this.request('GET', `/api/planting-calendar/search?q=${encodeURIComponent(q)}`); },
+  searchPerenual(q) { return this.request('GET', `/api/planting-calendar/lookup?q=${encodeURIComponent(q)}`); },
+  getPerenualDetails(id) { return this.request('GET', `/api/planting-calendar/lookup/${id}`); },
+  getPlantingCropByName(name) { return this.request('GET', `/api/planting-calendar/crop/${encodeURIComponent(name)}`); },
+  createPlantingCrop(data) { return this.request('POST', '/api/planting-calendar', data); },
+  updatePlantingCrop(id, data) { return this.request('PUT', `/api/planting-calendar/${encodeURIComponent(id)}`, data); },
+  deletePlantingCrop(id, all) { return this.request('DELETE', `/api/planting-calendar/${encodeURIComponent(id)}${all ? '?all=true' : ''}`); },
+
   // Export
   exportLogs(gardenId) { return this.download(`/api/export/logs/${gardenId}`); },
   exportPlants(gardenId) { return this.download(`/api/export/plants/${gardenId}`); },

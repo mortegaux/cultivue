@@ -498,6 +498,7 @@ function renderPage() {
     case 'tasks': renderTasks(main); break;
     case 'plants': renderPlants(main); break;
     case 'seeds': renderSeeds(main); break;
+    case 'calendar': renderCalendarPage(main); break;
     case 'settings': renderSettings(main); break;
     case 'garden-detail': {
       const garden = getSelectedGarden();
@@ -532,6 +533,42 @@ function timeGreeting() {
 }
 
 function daysAgo(iso) { return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000); }
+
+function getSeasonContext() {
+  const now = new Date();
+  const month = now.getMonth(); // 0-11
+  const day = now.getDate();
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // Northern Hemisphere seasons
+  let season, seasonStart;
+  if (month < 2 || (month === 2 && day < 20)) { season = 'Winter'; seasonStart = new Date(month < 2 ? now.getFullYear() - 1 : now.getFullYear(), 11, 21); }
+  else if (month < 5 || (month === 5 && day < 21)) { season = 'Spring'; seasonStart = new Date(now.getFullYear(), 2, 20); }
+  else if (month < 8 || (month === 8 && day < 22)) { season = 'Summer'; seasonStart = new Date(now.getFullYear(), 5, 21); }
+  else if (month < 11 || (month === 11 && day < 21)) { season = 'Autumn'; seasonStart = new Date(now.getFullYear(), 8, 22); }
+  else { season = 'Winter'; seasonStart = new Date(now.getFullYear(), 11, 21); }
+
+  const dayOfSeason = Math.floor((now - seasonStart) / 86400000) + 1;
+  const part = day <= 10 ? 'Early' : day <= 20 ? 'Mid' : 'Late';
+  return `${part} ${months[month]} · Day ${dayOfSeason} of ${season}`;
+}
+
+function computeGardenHealthStatus(latestLog, metrics) {
+  if (!latestLog || !latestLog.metric_data) return 'none';
+  const md = latestLog.metric_data;
+  let worst = 'good';
+  let hasAny = false;
+  for (const m of metrics) {
+    const val = md[m.id] ?? null;
+    if (val == null || m.ideal_min == null || m.ideal_max == null) continue;
+    hasAny = true;
+    if (val < m.ideal_min || val > m.ideal_max) {
+      if (val >= m.ideal_min * 0.8 && val <= m.ideal_max * 1.2) { if (worst === 'good') worst = 'warn'; }
+      else return 'bad';
+    }
+  }
+  return hasAny ? worst : 'none';
+}
 
 const SYSTEM_TYPES = {
   dwc: 'Deep Water Culture (DWC)', kratky: 'Kratky', nft: 'NFT (Nutrient Film Technique)',
@@ -717,7 +754,7 @@ function closeDrawer() {
 async function renderDashboard(main) {
   main.innerHTML = `
     <header class="page-header">
-      <div><p class="subtitle">${timeGreeting()}, ${esc(state.user?.display_name || '')}!</p><h1>Dashboard</h1></div>
+      <div><p class="subtitle">${timeGreeting()}, ${esc(state.user?.display_name || '')}!</p><h1>Dashboard</h1><p class="season-context">${getSeasonContext()}</p></div>
       <div class="quick-add-wrap">
         <button class="btn btn-primary" type="button" id="dashQuickAdd">+ New <span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px">expand_more</span></button>
         <div class="quick-add-menu" id="dashQuickAddMenu" hidden>
@@ -753,6 +790,37 @@ async function renderDashboard(main) {
     const container = document.getElementById('dashboardContent');
     if (!container) return;
 
+    // Build environment alerts HTML (only if alerts exist)
+    const alerts = dashStats.environment_alerts || [];
+    const alertsHtml = alerts.length ? `
+      <section aria-label="Environment alerts" style="margin-top:24px">
+        <h2 class="section-heading"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px;color:var(--warning)">warning</span> Environment Alerts</h2>
+        <div class="card" style="padding:0"><div class="alert-list">${alerts.map(a => `
+          <div class="alert-item alert-${a.severity}" data-garden-id="${a.garden_id}">
+            <span class="health-dot health-${a.severity}"></span>
+            <span class="alert-garden">${esc(a.garden_name)}</span>
+            <span class="alert-detail">${esc(a.metric_name)}: ${a.value}${a.unit ? esc(a.unit) : ''} <span class="alert-range">(ideal ${a.ideal_min}–${a.ideal_max})</span></span>
+            <span class="alert-time">${formatDateTime(a.timestamp)}</span>
+          </div>
+        `).join('')}</div></div>
+      </section>` : '';
+
+    // Build plants needing attention HTML (only if items exist)
+    const attention = dashStats.plants_needing_attention || [];
+    const attentionHtml = attention.length ? `
+      <section aria-label="Plants needing attention" style="margin-top:24px">
+        <h2 class="section-heading"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px;color:var(--error)">eco</span> Plants Needing Attention</h2>
+        <div class="card" style="padding:0"><div class="attention-list">${attention.map(p => `
+          <div class="attention-item" data-garden-id="${p.garden_id}">
+            <span class="badge badge-${STAGE_COLORS[p.current_stage] || 'gray'}">${esc(p.current_stage)}</span>
+            <span class="attention-name">${esc(p.plant_name)}</span>
+            <span class="attention-species">${esc(p.species)}</span>
+            <span class="attention-garden">${esc(p.garden_name)}</span>
+            <span class="attention-reason">${esc(p.reason)}</span>
+          </div>
+        `).join('')}</div></div>
+      </section>` : '';
+
     // Overview stats
     container.innerHTML = `
       <section aria-label="Overview statistics">
@@ -763,6 +831,9 @@ async function renderDashboard(main) {
           <div class="card stat-card" data-nav="logs" style="cursor:pointer"><div class="metric-icon blue" aria-hidden="true"><span class="material-symbols-outlined">monitoring</span></div><div><div class="metric-value">${dashStats.total_logs}</div><div class="metric-label">Log Entries</div></div></div>
         </div>
       </section>
+
+      ${alertsHtml}
+      ${attentionHtml}
 
       <section aria-label="Gardens" style="margin-top:24px">
         <div class="section-header"><h2 class="section-heading" style="margin:0">My Gardens</h2><button class="link-btn" onclick="navigateTo('gardens')">View all</button></div>
@@ -786,6 +857,12 @@ async function renderDashboard(main) {
       card.addEventListener('click', () => navigateTo(card.dataset.nav));
     });
 
+    // Alert and attention item click → navigate to garden detail
+    container.querySelectorAll('.alert-item[data-garden-id], .attention-item[data-garden-id]').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => viewGardenDetail(el.dataset.gardenId));
+    });
+
     // Garden grid
     const grid = document.getElementById('dashGardenGrid');
     if (!state.gardens.length) {
@@ -794,15 +871,21 @@ async function renderDashboard(main) {
       document.getElementById('emptyNewGarden')?.addEventListener('click', showCreateGardenModal);
     } else {
       const displayGardens = state.gardens.slice(0, 6);
-      const allStats = await Promise.all(displayGardens.map(g => API.getStats(g.id)));
+      const [allStats, allMetrics] = await Promise.all([
+        Promise.all(displayGardens.map(g => API.getStats(g.id))),
+        Promise.all(displayGardens.map(g => getAvailableMetrics(g)))
+      ]);
       grid.innerHTML = `<div class="card" style="padding:0"><table class="dash-garden-table"><tbody>${displayGardens.map((garden, i) => {
         const stats = allStats[i];
+        const metrics = allMetrics[i];
+        const health = computeGardenHealthStatus(stats.latest_log, metrics);
+        const healthDot = health !== 'none' ? `<span class="health-dot health-${health}"></span> ` : '';
         const category = getGardenCategory(garden);
         const catColor = CATEGORY_COLORS[category] || 'green';
         const catIcon = CATEGORY_ICONS[category] || 'eco';
         const iconColor = catColor === 'green' ? 'green' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'green';
         return `<tr class="dash-garden-row" data-garden-id="${garden.id}">
-          <td class="dgr-name"><span class="material-symbols-outlined" style="color:var(--${iconColor});font-size:20px;vertical-align:middle">${catIcon}</span> ${esc(garden.name)}</td>
+          <td class="dgr-name">${healthDot}<span class="material-symbols-outlined" style="color:var(--${iconColor});font-size:20px;vertical-align:middle">${catIcon}</span> ${esc(garden.name)}</td>
           <td class="dgr-badges"><span class="badge badge-${catColor}">${esc(getGardenTypeDisplay(garden))}</span>${garden.location_name ? ` <span class="badge badge-purple">${esc(garden.location_name)}</span>` : ''}</td>
           <td class="dgr-stat">${stats.active_plants} <span class="dgr-label">plants</span></td>
           <td class="dgr-stat">${stats.total_logs} <span class="dgr-label">logs</span></td>
@@ -2432,6 +2515,519 @@ function getSeedName(seedId) {
 }
 
 // ============================================
+// === PLANTING CALENDAR
+// ============================================
+async function renderCalendarPage(main) {
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthFull = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const currentMonth = new Date().getMonth() + 1; // 1-12
+  const isAdmin = state.user?.is_admin;
+
+  let settings = {};
+  try { settings = await API.getSettings(); } catch { /* ok */ }
+  const savedZone = parseInt(localStorage.getItem('calendarZone'), 10);
+  const initialZone = savedZone || parseInt(settings.usda_zone, 10) || 7;
+
+  let data = { crops: [], zone: initialZone, zone_group: 'temperate' };
+  try { data = await API.getPlantingCalendar(initialZone); } catch { /* ok */ }
+
+  let activeCategory = 'all';
+
+  function zoneOptions() {
+    let html = '';
+    for (let z = 1; z <= 13; z++) {
+      html += `<option value="${z}"${z === data.zone ? ' selected' : ''}>Zone ${z}</option>`;
+    }
+    return html;
+  }
+
+  function renderGrid() {
+    const filtered = activeCategory === 'all' ? data.crops : data.crops.filter(c => c.category === activeCategory);
+
+    if (!filtered.length) {
+      return '<div class="empty-state"><span class="material-symbols-outlined">eco</span><p>No crops found for this zone and category.</p></div>';
+    }
+
+    let html = '<div class="calendar-grid"><div class="calendar-row calendar-header-row">';
+    html += '<div class="calendar-crop-name">Crop</div>';
+    for (let m = 1; m <= 12; m++) {
+      html += `<div class="calendar-header-cell${m === currentMonth ? ' calendar-current-month' : ''}">${monthNames[m - 1]}</div>`;
+    }
+    html += '</div>';
+
+    for (const crop of filtered) {
+      html += '<div class="calendar-row">';
+      html += `<button class="calendar-crop-name" type="button" data-crop-name="${esc(crop.name)}" data-crop-id="${esc(crop.id)}" title="${esc(crop.notes || '')}">${esc(crop.name)}</button>`;
+      for (let m = 1; m <= 12; m++) {
+        const classes = ['calendar-cell'];
+        if (m === currentMonth) classes.push('calendar-current-month');
+        const bars = [];
+        if (crop.sow_indoor_start && m >= crop.sow_indoor_start && m <= crop.sow_indoor_end) bars.push('bar-sow-indoor');
+        if (crop.sow_outdoor_start && m >= crop.sow_outdoor_start && m <= crop.sow_outdoor_end) bars.push('bar-sow-outdoor');
+        if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) bars.push('bar-transplant');
+        if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) bars.push('bar-harvest');
+        html += `<div class="${classes.join(' ')}">${bars.map(b => `<div class="calendar-bar ${b}"></div>`).join('')}</div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function bindGridEvents() {
+    document.querySelectorAll('#calendarContainer [data-crop-name]').forEach(btn => {
+      btn.addEventListener('click', () => showCropDetail(btn.dataset.cropName));
+    });
+  }
+
+  function render() {
+    const categories = ['all', 'vegetable', 'herb', 'fruit', 'flower'];
+    const categoryLabels = { all: 'All', vegetable: 'Vegetables', herb: 'Herbs', fruit: 'Fruits', flower: 'Flowers' };
+    const counts = { all: data.crops.length };
+    for (const c of data.crops) counts[c.category] = (counts[c.category] || 0) + 1;
+
+    main.innerHTML = `
+      <header class="page-header">
+        <div>
+          <h1>Planting Calendar</h1>
+          <p class="season-context">${getSeasonContext()}</p>
+        </div>
+        <div class="header-actions">
+          <div class="calendar-zone-select">
+            <select id="zoneSelect" aria-label="USDA Hardiness Zone">${zoneOptions()}</select>
+          </div>
+          ${isAdmin ? '<button class="btn btn-primary" type="button" id="addCropBtn">+ New Crop</button>' : ''}
+        </div>
+      </header>
+
+      <div class="calendar-legend">
+        <span class="legend-item"><span class="legend-swatch bar-sow-indoor"></span> Sow Indoors</span>
+        <span class="legend-item"><span class="legend-swatch bar-sow-outdoor"></span> Sow Outdoors</span>
+        <span class="legend-item"><span class="legend-swatch bar-transplant"></span> Transplant</span>
+        <span class="legend-item"><span class="legend-swatch bar-harvest"></span> Harvest</span>
+      </div>
+
+      <div class="tabs calendar-filters">
+        ${categories.map(c => `<button class="tab${activeCategory === c ? ' active' : ''}" data-category="${c}" type="button">${categoryLabels[c]}${counts[c] ? ` (${counts[c]})` : ''}</button>`).join('')}
+      </div>
+
+      <div id="calendarContainer">${renderGrid()}</div>
+    `;
+
+    bindGridEvents();
+
+    if (isAdmin) {
+      document.getElementById('addCropBtn').addEventListener('click', () => showAddCropModal(data.zone_group));
+    }
+
+    main.querySelector('#zoneSelect').addEventListener('change', async (e) => {
+      const newZone = parseInt(e.target.value, 10);
+      localStorage.setItem('calendarZone', String(newZone));
+      try {
+        data = await API.getPlantingCalendar(newZone);
+        document.getElementById('calendarContainer').innerHTML = renderGrid();
+        bindGridEvents();
+      } catch { toast('Failed to update zone', 'error'); }
+    });
+
+    main.querySelectorAll('.calendar-filters .tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeCategory = btn.dataset.category;
+        main.querySelectorAll('.calendar-filters .tab').forEach(t => t.classList.toggle('active', t === btn));
+        document.getElementById('calendarContainer').innerHTML = renderGrid();
+        bindGridEvents();
+      });
+    });
+  }
+
+  render();
+}
+
+// === Crop Detail Drawer ===
+async function showCropDetail(cropName) {
+  if (!cropName) return;
+  const isAdmin = state.user?.is_admin;
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  showDrawer(`
+    <div class="drawer-header">
+      <h2 id="drawerTitle">Loading...</h2>
+      <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
+    </div>
+    <div class="drawer-body"><p class="loading-text">Loading...</p></div>`);
+  document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
+
+  try {
+    const crop = await API.getPlantingCropByName(cropName);
+    const drawer = document.getElementById('drawer');
+    if (!drawer || !drawer.classList.contains('open')) return;
+
+    const zoneLabels = { cold: 'Cold (Zones 1-4)', temperate: 'Temperate (Zones 5-7)', warm: 'Warm (Zones 8-13)' };
+    const anyZone = crop.zones[Object.keys(crop.zones)[0]];
+
+    function renderZoneWindow(z) {
+      const rows = [];
+      if (z.sow_indoor_start) rows.push(`<div class="perenual-info-row"><span class="perenual-info-label">Sow Indoor</span><span class="perenual-info-value">${monthNames[z.sow_indoor_start - 1]} – ${monthNames[z.sow_indoor_end - 1]}</span></div>`);
+      if (z.sow_outdoor_start) rows.push(`<div class="perenual-info-row"><span class="perenual-info-label">Sow Outdoor</span><span class="perenual-info-value">${monthNames[z.sow_outdoor_start - 1]} – ${monthNames[z.sow_outdoor_end - 1]}</span></div>`);
+      if (z.transplant_start) rows.push(`<div class="perenual-info-row"><span class="perenual-info-label">Transplant</span><span class="perenual-info-value">${monthNames[z.transplant_start - 1]} – ${monthNames[z.transplant_end - 1]}</span></div>`);
+      if (z.harvest_start) rows.push(`<div class="perenual-info-row"><span class="perenual-info-label">Harvest</span><span class="perenual-info-value">${monthNames[z.harvest_start - 1]} – ${monthNames[z.harvest_end - 1]}</span></div>`);
+      return rows.length ? rows.join('') : '<div style="color:var(--text-tertiary);font-size:0.85rem">No schedule data</div>';
+    }
+
+    drawer.innerHTML = `
+      <div class="drawer-header">
+        <h2 id="drawerTitle">${esc(crop.name)}</h2>
+        <button class="drawer-close" id="closeDrawerBtn" type="button" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span></button>
+      </div>
+      <div class="drawer-body">
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <span class="badge badge-green">${esc(crop.category)}</span>
+          ${anyZone?.days_to_maturity_min ? `<span class="badge badge-blue">${anyZone.days_to_maturity_min}–${anyZone.days_to_maturity_max || '?'} days to maturity</span>` : ''}
+        </div>
+        ${Object.entries(crop.zones).map(([zg, z]) => `
+          <h3 class="section-heading">${zoneLabels[zg] || zg}</h3>
+          <div class="perenual-info" style="margin-top:0">${renderZoneWindow(z)}</div>
+          ${z.notes ? `<div class="detail-notes">${esc(z.notes)}</div>` : ''}
+        `).join('')}
+      </div>
+      ${isAdmin ? `<div class="drawer-actions">
+        <button class="btn btn-danger btn-sm" type="button" id="deleteCropBtn">Delete All Zones</button>
+        <button class="btn btn-secondary" type="button" id="editCropBtn">Edit</button>
+      </div>` : ''}`;
+
+    document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
+    if (isAdmin) {
+      document.getElementById('editCropBtn').addEventListener('click', () => {
+        // Get the current zone_group from the page context
+        let settings = {};
+        try { settings = JSON.parse(document.getElementById('zoneSelect')?.value || ''); } catch { /* ok */ }
+        const currentZone = parseInt(document.getElementById('zoneSelect')?.value, 10) || 7;
+        const zg = currentZone <= 4 ? 'cold' : currentZone <= 7 ? 'temperate' : 'warm';
+        const editTarget = crop.zones[zg] || Object.values(crop.zones)[0];
+        closeDrawer();
+        showEditCropModal(editTarget);
+      });
+      document.getElementById('deleteCropBtn').addEventListener('click', async () => {
+        if (!confirm(`Delete "${crop.name}" from all zone groups? This cannot be undone.`)) return;
+        const firstId = Object.values(crop.zones)[0].id;
+        await API.deletePlantingCrop(firstId, true);
+        closeDrawer();
+        toast('Crop deleted');
+        renderPage();
+      });
+    }
+  } catch {
+    const drawer = document.getElementById('drawer');
+    if (drawer && drawer.classList.contains('open')) {
+      drawer.querySelector('.drawer-body').innerHTML = '<p class="empty-text">Failed to load crop details.</p>';
+    }
+  }
+}
+
+// === Helper: Month options for dropdowns ===
+function monthOptions(selected) {
+  const names = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  let html = '<option value="">—</option>';
+  for (let m = 1; m <= 12; m++) {
+    html += `<option value="${m}"${m === selected ? ' selected' : ''}>${names[m]}</option>`;
+  }
+  return html;
+}
+
+// === Helper: Zone fields HTML (4 month-pair rows) ===
+function zoneFieldsHtml(prefix, data) {
+  const d = data || {};
+  return `
+    <div class="form-row">
+      <div class="form-group"><label>Sow Indoor Start</label><select class="form-input" name="${prefix}_sow_indoor_start">${monthOptions(d.sow_indoor_start)}</select></div>
+      <div class="form-group"><label>Sow Indoor End</label><select class="form-input" name="${prefix}_sow_indoor_end">${monthOptions(d.sow_indoor_end)}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Sow Outdoor Start</label><select class="form-input" name="${prefix}_sow_outdoor_start">${monthOptions(d.sow_outdoor_start)}</select></div>
+      <div class="form-group"><label>Sow Outdoor End</label><select class="form-input" name="${prefix}_sow_outdoor_end">${monthOptions(d.sow_outdoor_end)}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Transplant Start</label><select class="form-input" name="${prefix}_transplant_start">${monthOptions(d.transplant_start)}</select></div>
+      <div class="form-group"><label>Transplant End</label><select class="form-input" name="${prefix}_transplant_end">${monthOptions(d.transplant_end)}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Harvest Start</label><select class="form-input" name="${prefix}_harvest_start">${monthOptions(d.harvest_start)}</select></div>
+      <div class="form-group"><label>Harvest End</label><select class="form-input" name="${prefix}_harvest_end">${monthOptions(d.harvest_end)}</select></div>
+    </div>`;
+}
+
+// === Helper: extract zone fields from FormData ===
+function extractZoneFields(fd, prefix) {
+  return {
+    sow_indoor_start: fd.get(`${prefix}_sow_indoor_start`) ? parseInt(fd.get(`${prefix}_sow_indoor_start`)) : null,
+    sow_indoor_end: fd.get(`${prefix}_sow_indoor_end`) ? parseInt(fd.get(`${prefix}_sow_indoor_end`)) : null,
+    sow_outdoor_start: fd.get(`${prefix}_sow_outdoor_start`) ? parseInt(fd.get(`${prefix}_sow_outdoor_start`)) : null,
+    sow_outdoor_end: fd.get(`${prefix}_sow_outdoor_end`) ? parseInt(fd.get(`${prefix}_sow_outdoor_end`)) : null,
+    transplant_start: fd.get(`${prefix}_transplant_start`) ? parseInt(fd.get(`${prefix}_transplant_start`)) : null,
+    transplant_end: fd.get(`${prefix}_transplant_end`) ? parseInt(fd.get(`${prefix}_transplant_end`)) : null,
+    harvest_start: fd.get(`${prefix}_harvest_start`) ? parseInt(fd.get(`${prefix}_harvest_start`)) : null,
+    harvest_end: fd.get(`${prefix}_harvest_end`) ? parseInt(fd.get(`${prefix}_harvest_end`)) : null,
+  };
+}
+
+// === Add Crop Modal ===
+function showAddCropModal(currentZoneGroup) {
+  const zoneLabels = { cold: 'Cold (Zones 1-4)', temperate: 'Temperate (Zones 5-7)', warm: 'Warm (Zones 8-13)' };
+  const otherZones = ['cold', 'temperate', 'warm'].filter(z => z !== currentZoneGroup);
+
+  showModal(`<h2 id="modalTitle">Add Crop</h2>
+    <div class="crop-search-wrap">
+      <div class="form-row" style="align-items:end">
+        <div class="form-group" style="flex:1;margin-bottom:0"><label for="cropSearch">Search existing crops</label><input class="form-input" id="cropSearch" placeholder="Type to search..." autocomplete="off"></div>
+        <button class="btn btn-secondary btn-sm" type="button" id="perenualLookupBtn" style="margin-bottom:0;white-space:nowrap">Lookup on Perenual</button>
+      </div>
+      <div class="crop-search-results" id="cropSearchResults" hidden></div>
+    </div>
+    <div id="perenualInfoCard"></div>
+    <form id="cropForm">
+      <div class="form-row">
+        <div class="form-group"><label for="cf-name">Name <span class="required">*</span></label><input class="form-input" id="cf-name" name="name" required placeholder="e.g., Tomato"></div>
+        <div class="form-group"><label for="cf-category">Category <span class="required">*</span></label><select class="form-input" id="cf-category" name="category" required>
+          <option value="vegetable">Vegetable</option><option value="herb">Herb</option><option value="fruit">Fruit</option><option value="flower">Flower</option>
+        </select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="cf-dtm-min">Days to Maturity Min</label><input class="form-input" id="cf-dtm-min" name="days_to_maturity_min" type="number" min="0" max="9999"></div>
+        <div class="form-group"><label for="cf-dtm-max">Days to Maturity Max</label><input class="form-input" id="cf-dtm-max" name="days_to_maturity_max" type="number" min="0" max="9999"></div>
+      </div>
+
+      <h3 class="section-heading" style="margin-top:12px">${zoneLabels[currentZoneGroup]}</h3>
+      ${zoneFieldsHtml('current', null)}
+
+      <div style="margin-top:16px">
+        <button class="zone-section-toggle" type="button" id="otherZonesToggle">
+          <span class="material-symbols-outlined">chevron_right</span> Other Zones (optional)
+        </button>
+        <div class="zone-section-content" id="otherZonesContent">
+          ${otherZones.map(z => `<h3 class="section-heading">${zoneLabels[z]}</h3>${zoneFieldsHtml(z, null)}`).join('')}
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:12px"><label for="cf-notes">Notes</label><textarea class="form-input" id="cf-notes" name="notes" rows="2"></textarea></div>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelCrop">Cancel</button><button type="submit" class="btn btn-primary">Add Crop</button></div>
+    </form>`);
+
+  // Toggle other zones
+  document.getElementById('otherZonesToggle').addEventListener('click', function() {
+    this.classList.toggle('open');
+    document.getElementById('otherZonesContent').classList.toggle('open');
+  });
+
+  // Internal search with debounce
+  let searchTimer = null;
+  const searchInput = document.getElementById('cropSearch');
+  const resultsEl = document.getElementById('cropSearchResults');
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { resultsEl.hidden = true; return; }
+    searchTimer = setTimeout(async () => {
+      try {
+        const { results } = await API.searchPlantingCrops(q);
+        if (!results.length) {
+          resultsEl.innerHTML = '<div class="crop-search-item"><span class="crop-search-item-name">No matches found</span></div>';
+        } else {
+          resultsEl.innerHTML = results.map(r => `
+            <div class="crop-search-item" data-fill-crop="${esc(r.name)}">
+              <span class="crop-search-item-name">${esc(r.name)}</span>
+              <span class="crop-search-item-meta">${esc(r.category)} · ${Object.keys(r.zones).length} zone(s)</span>
+            </div>`).join('');
+          resultsEl.querySelectorAll('[data-fill-crop]').forEach(item => {
+            item.addEventListener('click', () => {
+              const match = results.find(r => r.name === item.dataset.fillCrop);
+              if (match) fillCropFormFromSearch(match, currentZoneGroup, otherZones);
+              resultsEl.hidden = true;
+              searchInput.value = '';
+            });
+          });
+        }
+        resultsEl.hidden = false;
+      } catch { /* ignore */ }
+    }, 300);
+  });
+
+  // Close results on outside click
+  document.addEventListener('click', function handler(e) {
+    if (!resultsEl.contains(e.target) && e.target !== searchInput) resultsEl.hidden = true;
+    if (!document.getElementById('cropSearchResults')) document.removeEventListener('click', handler);
+  });
+
+  // Perenual lookup
+  document.getElementById('perenualLookupBtn').addEventListener('click', async () => {
+    const q = searchInput.value.trim();
+    if (q.length < 2) { toast('Type at least 2 characters to search', 'info'); return; }
+    resultsEl.innerHTML = '<div class="crop-search-item"><span class="crop-search-item-name">Searching Perenual...</span></div>';
+    resultsEl.hidden = false;
+    try {
+      const { results } = await API.searchPerenual(q);
+      if (!results.length) {
+        resultsEl.innerHTML = '<div class="crop-search-item"><span class="crop-search-item-name">No Perenual results</span></div>';
+        return;
+      }
+      resultsEl.innerHTML = results.map(r => `
+        <div class="crop-search-item" data-perenual-id="${r.id}">
+          <span class="crop-search-item-name">${esc(r.common_name)}</span>
+          <span class="crop-search-item-meta">${[r.cycle, r.hardiness_min ? 'Zones ' + r.hardiness_min + '-' + r.hardiness_max : ''].filter(Boolean).join(' · ')}</span>
+        </div>`).join('');
+      resultsEl.querySelectorAll('[data-perenual-id]').forEach(item => {
+        item.addEventListener('click', async () => {
+          resultsEl.hidden = true;
+          const match = results.find(r => String(r.id) === item.dataset.perenualId);
+          if (match) {
+            document.getElementById('cf-name').value = match.common_name || '';
+          }
+          // Fetch details and show info card
+          const infoCard = document.getElementById('perenualInfoCard');
+          infoCard.innerHTML = '<div class="perenual-info"><p class="loading-text">Loading details...</p></div>';
+          try {
+            const details = await API.getPerenualDetails(item.dataset.perenualId);
+            infoCard.innerHTML = `<div class="perenual-info">
+              <div style="font-weight:600;margin-bottom:6px">${esc(details.common_name || '')}</div>
+              ${details.scientific_name ? `<div style="font-style:italic;font-size:0.8rem;color:var(--text-tertiary);margin-bottom:8px">${esc(details.scientific_name)}</div>` : ''}
+              ${details.cycle ? `<div class="perenual-info-row"><span class="perenual-info-label">Cycle</span><span class="perenual-info-value">${esc(details.cycle)}</span></div>` : ''}
+              ${details.growth_rate ? `<div class="perenual-info-row"><span class="perenual-info-label">Growth Rate</span><span class="perenual-info-value">${esc(details.growth_rate)}</span></div>` : ''}
+              ${details.care_level ? `<div class="perenual-info-row"><span class="perenual-info-label">Care Level</span><span class="perenual-info-value">${esc(details.care_level)}</span></div>` : ''}
+              ${details.watering ? `<div class="perenual-info-row"><span class="perenual-info-label">Watering</span><span class="perenual-info-value">${esc(details.watering)}</span></div>` : ''}
+              ${details.sunlight ? `<div class="perenual-info-row"><span class="perenual-info-label">Sunlight</span><span class="perenual-info-value">${esc(details.sunlight)}</span></div>` : ''}
+              ${details.hardiness_min ? `<div class="perenual-info-row"><span class="perenual-info-label">Hardiness</span><span class="perenual-info-value">Zones ${details.hardiness_min}–${details.hardiness_max}</span></div>` : ''}
+              ${details.harvest_season ? `<div class="perenual-info-row"><span class="perenual-info-label">Harvest Season</span><span class="perenual-info-value">${esc(details.harvest_season)}</span></div>` : ''}
+              ${details.propagation ? `<div class="perenual-info-row"><span class="perenual-info-label">Propagation</span><span class="perenual-info-value">${esc(details.propagation)}</span></div>` : ''}
+              ${details.description ? `<div style="margin-top:8px;font-size:0.8rem;color:var(--text-secondary)">${esc(details.description).slice(0, 200)}${details.description.length > 200 ? '...' : ''}</div>` : ''}
+            </div>`;
+          } catch {
+            infoCard.innerHTML = '<div class="perenual-info"><p class="empty-text">Failed to load details.</p></div>';
+          }
+        });
+      });
+    } catch (err) {
+      resultsEl.innerHTML = `<div class="crop-search-item"><span class="crop-search-item-name">${esc(err.message || 'Lookup failed')}</span></div>`;
+    }
+  });
+
+  document.getElementById('cancelCrop').addEventListener('click', closeModal);
+  document.getElementById('cropForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const name = fd.get('name');
+    const category = fd.get('category');
+    const days_to_maturity_min = fd.get('days_to_maturity_min') ? parseInt(fd.get('days_to_maturity_min')) : null;
+    const days_to_maturity_max = fd.get('days_to_maturity_max') ? parseInt(fd.get('days_to_maturity_max')) : null;
+    const notes = fd.get('notes') || null;
+
+    const allZones = [];
+    // Current zone (always included)
+    const currentFields = extractZoneFields(fd, 'current');
+    allZones.push({ name, category, zone_group: currentZoneGroup, ...currentFields, days_to_maturity_min, days_to_maturity_max, notes });
+
+    // Other zones (only if they have at least one field filled)
+    for (const z of otherZones) {
+      const fields = extractZoneFields(fd, z);
+      const hasData = Object.values(fields).some(v => v != null);
+      if (hasData) allZones.push({ name, category, zone_group: z, ...fields, days_to_maturity_min, days_to_maturity_max, notes });
+    }
+
+    try {
+      await API.createPlantingCrop({ all_zones: allZones });
+      closeModal();
+      toast('Crop added');
+      renderPage();
+    } catch (err) {
+      toast(err.message || 'Failed to add crop', 'error');
+    }
+  });
+}
+
+// === Fill crop form from internal search result ===
+function fillCropFormFromSearch(result, currentZoneGroup, otherZones) {
+  document.getElementById('cf-name').value = result.name;
+  document.getElementById('cf-category').value = result.category;
+
+  // Fill current zone
+  const currentData = result.zones[currentZoneGroup];
+  if (currentData) fillZoneSelects('current', currentData);
+
+  // Fill days to maturity from any zone
+  const anyZone = currentData || Object.values(result.zones)[0];
+  if (anyZone) {
+    if (anyZone.days_to_maturity_min) document.getElementById('cf-dtm-min').value = anyZone.days_to_maturity_min;
+    if (anyZone.days_to_maturity_max) document.getElementById('cf-dtm-max').value = anyZone.days_to_maturity_max;
+    if (anyZone.notes) document.getElementById('cf-notes').value = anyZone.notes;
+  }
+
+  // Fill other zones
+  for (const z of otherZones) {
+    if (result.zones[z]) fillZoneSelects(z, result.zones[z]);
+  }
+
+  // Open other zones section if data exists
+  const hasOtherData = otherZones.some(z => result.zones[z]);
+  if (hasOtherData) {
+    document.getElementById('otherZonesToggle')?.classList.add('open');
+    document.getElementById('otherZonesContent')?.classList.add('open');
+  }
+}
+
+function fillZoneSelects(prefix, data) {
+  const fields = ['sow_indoor_start','sow_indoor_end','sow_outdoor_start','sow_outdoor_end','transplant_start','transplant_end','harvest_start','harvest_end'];
+  for (const f of fields) {
+    const el = document.querySelector(`[name="${prefix}_${f}"]`);
+    if (el && data[f]) el.value = data[f];
+  }
+}
+
+// === Edit Crop Modal ===
+function showEditCropModal(crop) {
+  showModal(`<h2 id="modalTitle">Edit Crop</h2>
+    <form id="cropEditForm">
+      <div class="form-row">
+        <div class="form-group"><label for="cfe-name">Name <span class="required">*</span></label><input class="form-input" id="cfe-name" name="name" value="${esc(crop.name)}" required></div>
+        <div class="form-group"><label for="cfe-category">Category <span class="required">*</span></label><select class="form-input" id="cfe-category" name="category" required>
+          <option value="vegetable"${crop.category === 'vegetable' ? ' selected' : ''}>Vegetable</option>
+          <option value="herb"${crop.category === 'herb' ? ' selected' : ''}>Herb</option>
+          <option value="fruit"${crop.category === 'fruit' ? ' selected' : ''}>Fruit</option>
+          <option value="flower"${crop.category === 'flower' ? ' selected' : ''}>Flower</option>
+        </select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="cfe-dtm-min">Days to Maturity Min</label><input class="form-input" id="cfe-dtm-min" name="days_to_maturity_min" type="number" min="0" max="9999" value="${crop.days_to_maturity_min ?? ''}"></div>
+        <div class="form-group"><label for="cfe-dtm-max">Days to Maturity Max</label><input class="form-input" id="cfe-dtm-max" name="days_to_maturity_max" type="number" min="0" max="9999" value="${crop.days_to_maturity_max ?? ''}"></div>
+      </div>
+      <h3 class="section-heading" style="margin-top:12px">${crop.zone_group.charAt(0).toUpperCase() + crop.zone_group.slice(1)} Zone</h3>
+      ${zoneFieldsHtml('edit', crop)}
+      <div class="form-group" style="margin-top:12px"><label for="cfe-notes">Notes</label><textarea class="form-input" id="cfe-notes" name="notes" rows="2">${esc(crop.notes || '')}</textarea></div>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelCropEdit">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div>
+    </form>`);
+
+  document.getElementById('cancelCropEdit').addEventListener('click', closeModal);
+  document.getElementById('cropEditForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const fields = extractZoneFields(fd, 'edit');
+    try {
+      await API.updatePlantingCrop(crop.id, {
+        name: fd.get('name'),
+        category: fd.get('category'),
+        ...fields,
+        days_to_maturity_min: fd.get('days_to_maturity_min') ? parseInt(fd.get('days_to_maturity_min')) : null,
+        days_to_maturity_max: fd.get('days_to_maturity_max') ? parseInt(fd.get('days_to_maturity_max')) : null,
+        notes: fd.get('notes') || null,
+      });
+      closeModal();
+      toast('Crop updated');
+      renderPage();
+    } catch (err) {
+      toast(err.message || 'Failed to update crop', 'error');
+    }
+  });
+}
+
+// ============================================
 // === SETTINGS
 // ============================================
 async function renderSettings(main) {
@@ -2488,6 +3084,10 @@ async function renderSettings(main) {
           <div class="settings-item">
             <div><div class="settings-item-label">Default Units</div><div class="settings-item-desc">${settings.default_units === 'imperial' ? 'Imperial (°F, in)' : 'Metric (°C, cm)'}</div></div>
             <button class="btn btn-secondary btn-sm" type="button" id="editUnitsBtn">Change</button>
+          </div>
+          <div class="settings-item">
+            <div><div class="settings-item-label">USDA Hardiness Zone</div><div class="settings-item-desc">Zone ${parseInt(settings.usda_zone, 10) || 7} — affects planting calendar recommendations</div></div>
+            <select id="settingsZoneSelect" aria-label="USDA Hardiness Zone" style="min-width:100px">${(() => { const z = parseInt(settings.usda_zone, 10) || 7; let o = ''; for (let i = 1; i <= 13; i++) o += '<option value="' + i + '"' + (i === z ? ' selected' : '') + '>Zone ' + i + '</option>'; return o; })()}</select>
           </div>` : ''}
         </div>
       </section>
@@ -2522,6 +3122,24 @@ async function renderSettings(main) {
           <button class="btn btn-primary btn-sm section-action" type="button" id="createWebhookBtn">+ Add</button>
         </div>
         <div class="settings-section-body" id="webhooksList"><div class="settings-item"><div class="loading-text">Loading...</div></div></div>
+      </section>
+
+      <section class="settings-section" aria-label="Integrations">
+        <div class="settings-section-header">
+          <span class="material-symbols-outlined">extension</span> Integrations
+        </div>
+        <div class="settings-section-body">
+          <div class="settings-item">
+            <div>
+              <div class="settings-item-label">Perenual API Key</div>
+              <div class="settings-item-desc">For plant lookup in the Planting Calendar. Get a key at perenual.com</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <input class="form-input" id="perenualKeyInput" type="password" value="${esc(settings.perenual_api_key || '')}" style="width:200px" placeholder="Enter API key">
+              <button class="btn btn-secondary btn-sm" type="button" id="savePerenualKey">Save</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="settings-section" aria-label="Audit log">
@@ -2584,11 +3202,21 @@ async function renderSettings(main) {
       const newUnits = current === 'metric' ? 'imperial' : 'metric';
       API.updateSetting('default_units', newUnits).then(() => { toast(`Units changed to ${newUnits}`); renderPage(); });
     });
+    document.getElementById('settingsZoneSelect')?.addEventListener('change', (e) => {
+      API.updateSetting('usda_zone', e.target.value).then(() => { toast(`Zone updated to ${e.target.value}`); renderPage(); });
+    });
     loadUsersPanel();
     loadAuditPanel();
     loadGardenTypesSettings();
     loadWebhooksPanel();
     document.getElementById('createWebhookBtn').addEventListener('click', showCreateWebhookModal);
+    document.getElementById('savePerenualKey')?.addEventListener('click', async () => {
+      const val = document.getElementById('perenualKeyInput').value.trim();
+      try {
+        await API.updateSetting('perenual_api_key', val);
+        toast('Perenual API key saved');
+      } catch { toast('Failed to save API key', 'error'); }
+    });
   }
 }
 
