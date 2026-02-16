@@ -305,6 +305,14 @@ app.get('/api/garden-types', (req, res, next) => {
   res.json(types.map(t => ({ ...t, is_enabled: !!t.is_enabled })));
 });
 
+app.put('/api/garden-types/:id', requireAuth, requireAdmin, (req, res) => {
+  const { is_enabled } = req.body;
+  if (typeof is_enabled !== 'boolean') return res.status(400).json({ error: 'is_enabled must be a boolean' });
+  const result = db.prepare('UPDATE garden_types SET is_enabled = ? WHERE id = ?').run(is_enabled ? 1 : 0, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Garden type not found' });
+  res.json({ success: true });
+});
+
 app.get('/api/garden-types/:id/metrics', requireAuth, (req, res) => {
   const metrics = db.prepare(`
     SELECT md.*, gtm.is_required FROM garden_type_metrics gtm

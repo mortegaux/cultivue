@@ -47,6 +47,7 @@ const API = {
 
   // Garden Types
   getGardenTypes() { return this.request('GET', '/api/garden-types'); },
+  updateGardenType(typeId, data) { return this.request('PUT', `/api/garden-types/${encodeURIComponent(typeId)}`, data); },
   getGardenTypeMetrics(typeId) { return this.request('GET', `/api/garden-types/${encodeURIComponent(typeId)}/metrics`); },
 
   // Metrics

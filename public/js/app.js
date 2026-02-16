@@ -648,7 +648,12 @@ function initTagSelect(containerId, items, opts = {}) {
 
     function updateHighlight(opts) {
       opts.forEach((o, i) => o.classList.toggle('highlighted', i === highlightIdx));
-      if (opts[highlightIdx]) opts[highlightIdx].scrollIntoView({ block: 'nearest' });
+      if (opts[highlightIdx]) {
+        const opt = opts[highlightIdx];
+        const dd = opt.parentElement;
+        if (opt.offsetTop < dd.scrollTop) dd.scrollTop = opt.offsetTop;
+        else if (opt.offsetTop + opt.offsetHeight > dd.scrollTop + dd.clientHeight) dd.scrollTop = opt.offsetTop + opt.offsetHeight - dd.clientHeight;
+      }
     }
   }
 
@@ -665,6 +670,7 @@ function showModal(html) {
   const modal = document.getElementById('modal');
   modal.innerHTML = html;
   backdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
 
   // Focus trap
   const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -687,6 +693,7 @@ function closeModal() {
   const backdrop = document.getElementById('modalBackdrop');
   const modal = document.getElementById('modal');
   backdrop.hidden = true;
+  document.body.style.overflow = '';
   if (modal._trapFocus) { modal.removeEventListener('keydown', modal._trapFocus); delete modal._trapFocus; }
   if (_modalPreviousFocus) { _modalPreviousFocus.focus(); _modalPreviousFocus = null; }
 }
@@ -701,6 +708,7 @@ function showDrawer(html) {
   drawer.innerHTML = html;
   backdrop.hidden = false;
   backdrop.classList.remove('closing');
+  document.body.style.overflow = 'hidden';
 
   // Trigger slide-in on next frame
   requestAnimationFrame(() => { drawer.classList.add('open'); });
@@ -738,6 +746,7 @@ function closeDrawer() {
     clearTimeout(fallback);
     backdrop.hidden = true;
     backdrop.classList.remove('closing');
+    document.body.style.overflow = '';
     drawer.innerHTML = '';
     if (drawer._trapFocus) { drawer.removeEventListener('keydown', drawer._trapFocus); delete drawer._trapFocus; }
     if (backdrop._backdropClick) { backdrop.removeEventListener('click', backdrop._backdropClick); delete backdrop._backdropClick; }
@@ -3232,6 +3241,24 @@ async function loadGardenTypesSettings() {
         </div>`).join('')}
       </div>
     `).join('');
+
+    el.querySelectorAll('[data-toggle-type]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.toggleType;
+        const newEnabled = btn.dataset.enabled !== 'true';
+        try {
+          await API.updateGardenType(id, { is_enabled: newEnabled });
+          btn.classList.toggle('active', newEnabled);
+          btn.setAttribute('aria-checked', String(newEnabled));
+          btn.dataset.enabled = String(newEnabled);
+          const gt = state.gardenTypes.find(t => t.id === id);
+          if (gt) gt.is_enabled = newEnabled;
+          toast(`Garden type ${newEnabled ? 'enabled' : 'disabled'}`);
+        } catch (e) {
+          toast(e.message || 'Failed to update garden type', 'error');
+        }
+      });
+    });
   } catch {
     const el = document.getElementById('settingsGardenTypes');
     if (el) el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load garden types.</div></div>';
