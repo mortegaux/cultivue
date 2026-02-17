@@ -8,7 +8,13 @@ const API = {
       err.status = 401;
       throw err;
     }
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.error || `Request failed (${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
   },
 
   async download(url) {

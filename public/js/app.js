@@ -3211,6 +3211,23 @@ async function renderSettings(main) {
     loadUsersPanel();
     loadAuditPanel();
     loadGardenTypesSettings();
+    document.getElementById('settingsGardenTypes').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-toggle-type]');
+      if (!btn) return;
+      const id = btn.dataset.toggleType;
+      const newEnabled = btn.dataset.enabled !== 'true';
+      try {
+        await API.updateGardenType(id, { is_enabled: newEnabled });
+        btn.classList.toggle('active', newEnabled);
+        btn.setAttribute('aria-checked', String(newEnabled));
+        btn.dataset.enabled = String(newEnabled);
+        const gt = state.gardenTypes.find(t => t.id === id);
+        if (gt) gt.is_enabled = newEnabled;
+        toast(`Garden type ${newEnabled ? 'enabled' : 'disabled'}`);
+      } catch (e) {
+        toast(e.message || 'Failed to update garden type', 'error');
+      }
+    });
     loadWebhooksPanel();
     document.getElementById('createWebhookBtn').addEventListener('click', showCreateWebhookModal);
     document.getElementById('savePerenualKey')?.addEventListener('click', async () => {
@@ -3241,24 +3258,6 @@ async function loadGardenTypesSettings() {
         </div>`).join('')}
       </div>
     `).join('');
-
-    el.querySelectorAll('[data-toggle-type]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.dataset.toggleType;
-        const newEnabled = btn.dataset.enabled !== 'true';
-        try {
-          await API.updateGardenType(id, { is_enabled: newEnabled });
-          btn.classList.toggle('active', newEnabled);
-          btn.setAttribute('aria-checked', String(newEnabled));
-          btn.dataset.enabled = String(newEnabled);
-          const gt = state.gardenTypes.find(t => t.id === id);
-          if (gt) gt.is_enabled = newEnabled;
-          toast(`Garden type ${newEnabled ? 'enabled' : 'disabled'}`);
-        } catch (e) {
-          toast(e.message || 'Failed to update garden type', 'error');
-        }
-      });
-    });
   } catch {
     const el = document.getElementById('settingsGardenTypes');
     if (el) el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load garden types.</div></div>';
