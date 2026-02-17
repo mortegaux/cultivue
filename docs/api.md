@@ -58,6 +58,47 @@ Multi-step OOBE wizard.
 ### GET /metrics
 **Response:** `[{ id, name, ... }]`
 
+## Locations
+
+### GET /locations
+**Response:** `[{ id, name, description, sort_order, created_at, updated_at, garden_count }]`
+
+### POST /locations
+**Body:** `{ name, description?, sort_order? }`
+**Response:** `201 { id, name, description, sort_order, created_at, updated_at, garden_count }`
+
+### PUT /locations/:id
+**Body:** `{ name, description?, sort_order? }`
+**Response:** `200 { success: true }`
+
+### DELETE /locations/:id
+**Response:** `200 { success: true }`
+
+### GET /locations/:id/gardens
+**Response:** `[{ id, name, ... }]` — Gardens at this location.
+
+## Seeds
+
+### GET /seeds
+**Response:** `[{ id, name, variety, supplier, ..., plant_count, failure_count }]`
+
+### GET /seeds/:id
+**Response:** `{ id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at, updated_at }`
+
+### POST /seeds
+**Body:** `{ name, variety?, supplier?, purchase_date?, purchase_price?, quantity?, quantity_unit?, expected_germination_rate?, days_to_germination?, notes? }`
+**Response:** `201 { id, name, ... }`
+
+### PUT /seeds/:id
+**Body:** Same as POST.
+**Response:** `200 { success: true }`
+
+### DELETE /seeds/:id
+**Response:** `200 { success: true }`
+
+### GET /seeds/:id/metrics
+**Response:** `{ total_plants, past_germination, germination_rate, total_failures, failures: [{ failure_stage, failure_reason, count }] }`
+
 ## Gardens
 
 ### GET /gardens
@@ -166,6 +207,39 @@ Events: `sensor_reading`, `metric_alert`, `task_due`, `harvest`
 Webhook payloads include:
 - `X-Webhook-Event` header
 - `X-Webhook-Signature: sha256=<hmac>` header (if secret configured)
+
+## Planting Calendar
+
+### GET /planting-calendar?zone=7
+**Response:** `{ zone, zone_group, crops: [{ name, category, zones: { cold: {...}, temperate: {...}, warm: {...} } }] }`
+
+### GET /planting-calendar/search?q=tomato
+Search local planting index by name.
+**Response:** `{ results: [{ name, category, zones: { ... } }] }`
+
+### GET /planting-calendar/lookup?q=tomato
+Proxy search to Perenual API.
+**Response:** `{ results: [{ id, common_name, scientific_name, cycle, watering, sunlight, hardiness_min, hardiness_max }] }`
+
+### GET /planting-calendar/lookup/:id
+Proxy detail from Perenual API.
+**Response:** `{ common_name, scientific_name, cycle, growth_rate, care_level, harvest_season, ... }`
+
+### GET /planting-calendar/crop/:name
+**Response:** `{ name, category, zones: { cold: {...}, temperate: {...}, warm: {...} } }`
+
+### POST /planting-calendar
+**Body:** `{ name, category, zone_group, sow_indoor_start?, sow_indoor_end?, sow_outdoor_start?, sow_outdoor_end?, transplant_start?, transplant_end?, harvest_start?, harvest_end?, days_to_maturity_min?, days_to_maturity_max?, notes? }`
+Or batch: `{ all_zones: [{ name, category, zone_group, ... }, ...] }`
+**Response:** `201 { success: true, crops: [{ id, name, category, zone_group }] }`
+
+### PUT /planting-calendar/:id
+**Body:** `{ name, category, sow_indoor_start?, ... }` (same fields as POST, minus zone_group)
+**Response:** `200 { success: true }`
+
+### DELETE /planting-calendar/:id?all=true
+Delete single zone row, or all zones for the crop if `all=true`.
+**Response:** `200 { success: true }`
 
 ## Audit Log
 
