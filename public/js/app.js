@@ -15,6 +15,8 @@ let state = {
   logsChart: null,
 };
 
+const SECONDARY_PAGES = new Set(['calendar', 'plants', 'seeds', 'locations', 'settings']);
+
 // === Screen reader announcer ===
 function announce(msg) {
   const el = document.getElementById('sr-announcer');
@@ -408,7 +410,11 @@ function setupNav() {
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', e => {
       e.preventDefault();
-      navigateTo(link.dataset.page);
+      if (link.id === 'moreNavBtn') {
+        showMoreSheet();
+      } else {
+        navigateTo(link.dataset.page);
+      }
     });
   });
 }
@@ -425,12 +431,17 @@ function navigateTo(page, data) {
 }
 
 function updateNavHighlight(page) {
+  const moreBtn = document.getElementById('moreNavBtn');
   document.querySelectorAll('.nav-link').forEach(l => {
+    if (l.id === 'moreNavBtn') return;
     const isActive = l.dataset.page === page || (page === 'garden-detail' && l.dataset.page === 'gardens');
     l.classList.toggle('active', isActive);
     if (isActive) l.setAttribute('aria-current', 'page');
     else l.removeAttribute('aria-current');
   });
+  if (moreBtn) {
+    moreBtn.classList.toggle('more-active', SECONDARY_PAGES.has(page));
+  }
 }
 
 function routeFromPath() {
@@ -754,6 +765,88 @@ function closeDrawer() {
   }
 
   drawer.addEventListener('transitionend', onDone, { once: true });
+  const fallback = setTimeout(onDone, 350);
+}
+
+// === More Bottom Sheet ===
+function showMoreSheet() {
+  const backdrop = document.getElementById('moreSheetBackdrop');
+  const sheet = document.getElementById('moreSheet');
+
+  // Build sheet content from secondary nav items
+  const secondaryItems = document.querySelectorAll('.nav-secondary-item .nav-link');
+  let itemsHtml = '';
+  secondaryItems.forEach(link => {
+    const page = link.dataset.page;
+    const icon = link.querySelector('.material-symbols-outlined').textContent;
+    const label = link.querySelector('.nav-label').textContent;
+    const isActive = link.classList.contains('active');
+    itemsHtml += `<button class="more-sheet-item${isActive ? ' active' : ''}" data-page="${page}" type="button"><span class="material-symbols-outlined" aria-hidden="true">${page === 'calendar' ? 'calendar_month' : icon}</span>${label}</button>`;
+  });
+
+  sheet.innerHTML = `
+    <div class="more-sheet-handle"></div>
+    <nav class="more-sheet-items">${itemsHtml}</nav>
+  `;
+
+  backdrop.hidden = false;
+  backdrop.classList.remove('closing');
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => sheet.classList.add('open'));
+
+  // Item click handler
+  sheet.addEventListener('click', function onItemClick(e) {
+    const btn = e.target.closest('.more-sheet-item');
+    if (!btn) return;
+    sheet.removeEventListener('click', onItemClick);
+    closeMoreSheet();
+    navigateTo(btn.dataset.page);
+  });
+
+  // Backdrop click
+  function onBackdropClick(e) {
+    if (e.target === backdrop) closeMoreSheet();
+  }
+  backdrop.addEventListener('click', onBackdropClick);
+  backdrop._moreBackdropClick = onBackdropClick;
+
+  // Escape key
+  function onKeyDown(e) {
+    if (e.key === 'Escape') closeMoreSheet();
+  }
+  document.addEventListener('keydown', onKeyDown);
+  backdrop._moreKeyDown = onKeyDown;
+
+  // Focus first item
+  const firstItem = sheet.querySelector('.more-sheet-item');
+  if (firstItem) firstItem.focus();
+}
+
+function closeMoreSheet() {
+  const backdrop = document.getElementById('moreSheetBackdrop');
+  const sheet = document.getElementById('moreSheet');
+
+  sheet.classList.remove('open');
+  backdrop.classList.add('closing');
+
+  function onDone() {
+    sheet.removeEventListener('transitionend', onDone);
+    clearTimeout(fallback);
+    backdrop.hidden = true;
+    backdrop.classList.remove('closing');
+    document.body.style.overflow = '';
+    sheet.innerHTML = '';
+    if (backdrop._moreBackdropClick) {
+      backdrop.removeEventListener('click', backdrop._moreBackdropClick);
+      delete backdrop._moreBackdropClick;
+    }
+    if (backdrop._moreKeyDown) {
+      document.removeEventListener('keydown', backdrop._moreKeyDown);
+      delete backdrop._moreKeyDown;
+    }
+  }
+
+  sheet.addEventListener('transitionend', onDone, { once: true });
   const fallback = setTimeout(onDone, 350);
 }
 

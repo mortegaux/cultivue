@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>CultiVue</title>
   <link rel="stylesheet" href="/css/styles.css?v=7">
   <script defer src="/js/chart.min.js"></script>
@@ -27,15 +27,16 @@
         <span class="brand-text">CultiVue</span>
       </div>
       <ul class="nav-links" role="list">
-        <li><button class="nav-link active" data-page="dashboard" type="button" aria-current="page"><span class="material-symbols-outlined" aria-hidden="true">dashboard</span><span>Dashboard</span></button></li>
-        <li><button class="nav-link" data-page="gardens" type="button"><span class="material-symbols-outlined" aria-hidden="true">yard</span><span>Gardens</span></button></li>
-        <li><button class="nav-link" data-page="locations" type="button"><span class="material-symbols-outlined" aria-hidden="true">location_on</span><span>Locations</span></button></li>
-        <li><button class="nav-link" data-page="logs" type="button"><span class="material-symbols-outlined" aria-hidden="true">monitoring</span><span>Logs</span></button></li>
-        <li><button class="nav-link" data-page="tasks" type="button"><span class="material-symbols-outlined" aria-hidden="true">checklist</span><span>Tasks</span></button></li>
-        <li><button class="nav-link" data-page="plants" type="button"><span class="material-symbols-outlined" aria-hidden="true">potted_plant</span><span>Plants</span></button></li>
-        <li><button class="nav-link" data-page="seeds" type="button"><span class="material-symbols-outlined" aria-hidden="true">grain</span><span>Seeds</span></button></li>
-        <li><button class="nav-link" data-page="calendar" type="button"><span class="material-symbols-outlined" aria-hidden="true">calendar_month</span><span>Calendar</span></button></li>
-        <li><button class="nav-link" data-page="settings" type="button"><span class="material-symbols-outlined" aria-hidden="true">settings</span><span>Settings</span></button></li>
+        <li class="nav-primary-item"><button class="nav-link active" data-page="dashboard" type="button" aria-current="page"><span class="material-symbols-outlined" aria-hidden="true">dashboard</span><span class="nav-label">Dashboard</span></button></li>
+        <li class="nav-primary-item"><button class="nav-link" data-page="gardens" type="button"><span class="material-symbols-outlined" aria-hidden="true">yard</span><span class="nav-label">Gardens</span></button></li>
+        <li class="nav-primary-item"><button class="nav-link" data-page="logs" type="button"><span class="material-symbols-outlined" aria-hidden="true">monitoring</span><span class="nav-label">Logs</span></button></li>
+        <li class="nav-primary-item"><button class="nav-link" data-page="tasks" type="button"><span class="material-symbols-outlined" aria-hidden="true">checklist</span><span class="nav-label">Tasks</span></button></li>
+        <li class="nav-more-item"><button class="nav-link" id="moreNavBtn" type="button"><span class="material-symbols-outlined" aria-hidden="true">more_horiz</span><span class="nav-label">More</span></button></li>
+        <li class="nav-secondary-item"><button class="nav-link" data-page="calendar" type="button"><span class="material-symbols-outlined" aria-hidden="true">calendar_month</span><span class="nav-label">Calendar</span></button></li>
+        <li class="nav-secondary-item"><button class="nav-link" data-page="plants" type="button"><span class="material-symbols-outlined" aria-hidden="true">potted_plant</span><span class="nav-label">Plants</span></button></li>
+        <li class="nav-secondary-item"><button class="nav-link" data-page="seeds" type="button"><span class="material-symbols-outlined" aria-hidden="true">grain</span><span class="nav-label">Seeds</span></button></li>
+        <li class="nav-secondary-item"><button class="nav-link" data-page="locations" type="button"><span class="material-symbols-outlined" aria-hidden="true">location_on</span><span class="nav-label">Locations</span></button></li>
+        <li class="nav-secondary-item"><button class="nav-link" data-page="settings" type="button"><span class="material-symbols-outlined" aria-hidden="true">settings</span><span class="nav-label">Settings</span></button></li>
       </ul>
       <div class="sidebar-footer">
         <div id="userBadge"></div>
@@ -51,6 +52,11 @@
   <!-- Drawer (slide-out panel) -->
   <div class="drawer-backdrop" id="drawerBackdrop" hidden>
     <div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle"></div>
+  </div>
+
+  <!-- More bottom sheet -->
+  <div class="more-sheet-backdrop" id="moreSheetBackdrop" hidden>
+    <div class="more-sheet" id="moreSheet" role="dialog" aria-modal="true" aria-label="More navigation"></div>
   </div>
 
   <!-- Modal backdrop -->
