@@ -7,7 +7,7 @@ A garden management web app supporting hydroponic, soil, container, and aquaponi
 - **Multi-garden management** with 15+ garden subtypes across 4 categories
 - **Dynamic metrics** — each garden type has relevant metrics (pH, PPM, soil moisture, fish tank parameters, etc.)
 - **Task management** with priorities, recurring tasks, and cross-garden views
-- **Plant tracking** with growth stages and harvest recording
+- **Plant tracking** with growth stages and harvest recording — plus a `houseplant` type with its own lifecycle (acquired → acclimating → established → thriving) for plants you buy, not sow
 - **Device & sensor integration** — register devices, generate API keys, ingest sensor readings
 - **Webhook system** — fire events on sensor readings, alerts, task due dates, and harvests with HMAC signing
 - **Dashboard** with health indicators, upcoming tasks, and recent activity
