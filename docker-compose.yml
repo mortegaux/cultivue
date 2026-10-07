@@ -1,8 +1,13 @@
 services:
   cultivue:
     build: .
+    environment:
+      # Production mode enables Secure session cookies (see sessionCookieOpts).
+      # Override with COOKIE_SECURE=false only if you terminate TLS elsewhere
+      # and serve the app itself over plain HTTP.
+      NODE_ENV: production
     ports:
-      - "8778:3000"
+      - "8777:3000"
     volumes:
       - cultivue-data:/app/data
     restart: unless-stopped

@@ -43,7 +43,8 @@ Runs on port 3000 by default. Set `PORT` env variable to change.
 |---|---|---|
 | `PORT` | `3000` | Server port |
 | `DB_PATH` | `data/cultivue.db` | SQLite database path |
-| `NODE_ENV` | - | Set to `production` for secure cookies |
+| `NODE_ENV` | - | Set to `production` for secure cookies (also enabled by `COOKIE_SECURE=true`) |
+| `COOKIE_SECURE` | - | Set to `true` to force Secure session cookies regardless of `NODE_ENV` |
 
 ## Sensor API
 

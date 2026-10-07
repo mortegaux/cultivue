@@ -53,7 +53,14 @@ async function setupAdmin(username, displayName, password) {
   if (hasUsers()) {
     return { error: 'Setup already completed' };
   }
-  return createUser(username, displayName, password, true, false);
+  const result = await createUser(username, displayName, password, true, false);
+  // createUser awaits bcrypt between hasUsers() and INSERT, so re-check:
+  // two simultaneous first-boot requests must not create two admins.
+  if (!result.error && db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 1) {
+    db.prepare('DELETE FROM users WHERE id = ?').run(result.user.id);
+    return { error: 'Setup already completed' };
+  }
+  return result;
 }
 
 async function createUser(username, displayName, password, isAdmin = false, mustChangePassword = true) {
@@ -149,7 +156,7 @@ async function loginUser(username, password, ip) {
   };
 }
 
-async function changePassword(userId, currentPassword, newPassword) {
+async function changePassword(userId, currentPassword, newPassword, currentToken) {
   const pwError = validatePasswordStrength(newPassword);
   if (pwError) return { error: pwError };
 
@@ -164,6 +171,16 @@ async function changePassword(userId, currentPassword, newPassword) {
   const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
     .run(newHash, userId);
+
+  // Revoke all OTHER sessions: changing a (possibly compromised) password must
+  // lock out any attacker sessions. The current session stays valid — the user
+  // just proved they know the password — so they aren't logged out mid-flow.
+  if (currentToken) {
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+      .run(userId, hashToken(currentToken));
+  } else {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  }
 
   return { success: true };
 }

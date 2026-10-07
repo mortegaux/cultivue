@@ -22,7 +22,7 @@ const {
 const {
   VALID_EVENTS,
   listWebhooks, getWebhook, createWebhook, updateWebhook, deleteWebhook,
-  getWebhookLogs, fireWebhook,
+  getWebhookLogs, fireWebhook, assertSafeWebhookUrl,
 } = require('./webhooks');
 
 const app = express();
@@ -77,6 +77,10 @@ app.use(compression());
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.disable('x-powered-by');
+// Trust the first proxy hop for client IPs (used by rate limiting). Only
+// correct when a reverse proxy is actually in front of the app — without one,
+// clients can spoof X-Forwarded-For to dodge rate limits. Fine for the
+// intended LAN/docker deployment; revisit if ever exposed directly.
 app.set('trust proxy', 1);
 
 function getClientIP(req) {
@@ -84,9 +88,14 @@ function getClientIP(req) {
 }
 
 function sessionCookieOpts(expires) {
+  // Secure cookies in production: explicit COOKIE_SECURE=true wins, otherwise
+  // any production deployment gets them. (Previously only COOKIE_SECURE was
+  // honored, so the README's "set NODE_ENV=production for secure cookies"
+  // advice silently did nothing.)
+  const secure = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true',
+    secure,
     sameSite: 'lax',
     path: '/',
     expires,
@@ -212,7 +221,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.post('/api/auth/change-password', requireAuth, authLimiter, async (req, res) => {
   try {
-    const result = await changePassword(req.user.id, req.body.current_password, req.body.new_password);
+    const result = await changePassword(req.user.id, req.body.current_password, req.body.new_password, req.cookies && req.cookies.session);
     if (result.error) return res.status(400).json({ error: result.error });
 
     logAudit(req.user, 'update', 'user', req.user.id, 'Changed password', getClientIP(req));
@@ -305,14 +314,6 @@ app.get('/api/garden-types', (req, res, next) => {
   res.json(types.map(t => ({ ...t, is_enabled: !!t.is_enabled })));
 });
 
-app.put('/api/garden-types/:id', requireAuth, requireAdmin, (req, res) => {
-  const { is_enabled } = req.body;
-  if (typeof is_enabled !== 'boolean') return res.status(400).json({ error: 'is_enabled must be a boolean' });
-  const result = db.prepare('UPDATE garden_types SET is_enabled = ? WHERE id = ?').run(is_enabled ? 1 : 0, req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Garden type not found' });
-  res.json({ success: true });
-});
-
 app.get('/api/garden-types/:id/metrics', requireAuth, (req, res) => {
   const metrics = db.prepare(`
     SELECT md.*, gtm.is_required FROM garden_type_metrics gtm
@@ -350,7 +351,7 @@ app.get('/api/locations', requireAuth, (req, res) => {
   res.json(locations);
 });
 
-app.post('/api/locations', requireAuth, (req, res) => {
+app.post('/api/locations', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const description = V.str(req.body.description, 500);
   const sort_order = V.int(req.body.sort_order, 0, 10000) || 0;
@@ -366,7 +367,7 @@ app.post('/api/locations', requireAuth, (req, res) => {
   res.status(201).json({ id, name, description, sort_order, created_at: now, updated_at: now, garden_count: 0 });
 });
 
-app.put('/api/locations/:id', requireAuth, (req, res) => {
+app.put('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const name = V.reqStr(req.body.name, 100);
@@ -383,7 +384,7 @@ app.put('/api/locations/:id', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/locations/:id', requireAuth, (req, res) => {
+app.delete('/api/locations/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
   const location = db.prepare('SELECT name FROM locations WHERE id=?').get(req.params.id);
@@ -422,7 +423,7 @@ app.get('/api/seeds/:id', requireAuth, (req, res) => {
   res.json(seed);
 });
 
-app.post('/api/seeds', requireAuth, (req, res) => {
+app.post('/api/seeds', requireAuth, requireAdmin, (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Seed name is required' });
 
@@ -446,7 +447,7 @@ app.post('/api/seeds', requireAuth, (req, res) => {
   res.status(201).json({ id, name, variety, supplier, purchase_date, purchase_price, quantity, quantity_unit, expected_germination_rate, days_to_germination, notes, created_at: now, updated_at: now });
 });
 
-app.put('/api/seeds/:id', requireAuth, (req, res) => {
+app.put('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   if (!name) return res.status(400).json({ error: 'Invalid input' });
@@ -469,7 +470,7 @@ app.put('/api/seeds/:id', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/seeds/:id', requireAuth, (req, res) => {
+app.delete('/api/seeds/:id', requireAuth, requireAdmin, (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const seed = db.prepare('SELECT name FROM seeds WHERE id=?').get(req.params.id);
   db.prepare('DELETE FROM seeds WHERE id=?').run(req.params.id);
@@ -586,8 +587,16 @@ app.get('/api/gardens/:gardenId/logs', (req, res) => {
 
   let sql = 'SELECT * FROM log_entries WHERE garden_id=?';
   const params = [req.params.gardenId];
-  if (from) { sql += ' AND timestamp >= ?'; params.push(new Date(from).toISOString()); }
-  if (to) { sql += ' AND timestamp <= ?'; params.push(new Date(to + 'T23:59:59').toISOString()); }
+  if (from) {
+    const fromIso = V.isoDate(from);
+    if (!fromIso) return res.status(400).json({ error: 'Invalid from date' });
+    sql += ' AND timestamp >= ?'; params.push(fromIso);
+  }
+  if (to) {
+    const toIso = V.isoDate(to + 'T23:59:59');
+    if (!toIso) return res.status(400).json({ error: 'Invalid to date' });
+    sql += ' AND timestamp <= ?'; params.push(toIso);
+  }
   sql += ' ORDER BY timestamp DESC LIMIT ?';
   params.push(limit);
 
@@ -893,88 +902,6 @@ app.get('/api/dashboard/stats', requireAuth, (req, res) => {
     SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 10
   `).all();
 
-  // Environment alerts: check latest log metrics against ideal ranges
-  const environmentAlerts = [];
-  const activeGardens = db.prepare(`
-    SELECT g.id, g.name, g.garden_type_id FROM gardens g WHERE g.is_active=1
-  `).all();
-  const allMetricDefs = db.prepare('SELECT * FROM metric_definitions ORDER BY sort_order ASC').all();
-
-  for (const garden of activeGardens) {
-    const latestLog = db.prepare('SELECT * FROM log_entries WHERE garden_id=? ORDER BY timestamp DESC LIMIT 1').get(garden.id);
-    if (!latestLog || !latestLog.metric_data) continue;
-    let metricData;
-    try { metricData = JSON.parse(latestLog.metric_data); } catch { continue; }
-
-    // Get metrics for this garden type, or fall back to all metrics
-    let metrics = allMetricDefs;
-    if (garden.garden_type_id) {
-      const typeMetrics = db.prepare(`
-        SELECT md.* FROM garden_type_metrics gtm
-        JOIN metric_definitions md ON gtm.metric_id = md.id
-        WHERE gtm.garden_type_id = ? ORDER BY md.sort_order ASC
-      `).all(garden.garden_type_id);
-      if (typeMetrics.length) metrics = typeMetrics;
-    }
-
-    for (const m of metrics) {
-      const val = metricData[m.id];
-      if (val == null || m.ideal_min == null || m.ideal_max == null) continue;
-      if (val >= m.ideal_min && val <= m.ideal_max) continue;
-      const severity = (val >= m.ideal_min * 0.8 && val <= m.ideal_max * 1.2) ? 'warn' : 'bad';
-      environmentAlerts.push({
-        garden_id: garden.id, garden_name: garden.name,
-        metric_name: m.name, value: val, unit: m.unit_metric || '',
-        ideal_min: m.ideal_min, ideal_max: m.ideal_max,
-        severity, timestamp: latestLog.timestamp
-      });
-    }
-  }
-
-  // Plants needing attention: stale logs + stuck growth stages
-  const plantsNeedingAttention = [];
-  const stuckThresholds = { seed: 14, germination: 10, seedling: 21 };
-
-  const plantsWithGardens = db.prepare(`
-    SELECT p.*, g.name as garden_name, g.id as gid,
-      (SELECT MAX(le.timestamp) FROM log_entries le WHERE le.garden_id = g.id) as last_log_time
-    FROM plants p
-    JOIN gardens g ON p.garden_id = g.id
-    WHERE p.is_active = 1 AND g.is_active = 1
-  `).all();
-
-  const seen = new Set();
-  for (const p of plantsWithGardens) {
-    // Stale logs: no log entry in 3+ days
-    if (p.last_log_time) {
-      const daysSince = Math.floor((Date.now() - new Date(p.last_log_time).getTime()) / 86400000);
-      if (daysSince >= 3 && !seen.has(p.id)) {
-        seen.add(p.id);
-        plantsNeedingAttention.push({
-          plant_id: p.id, plant_name: p.name, species: p.species,
-          garden_id: p.gid, garden_name: p.garden_name,
-          current_stage: p.current_stage, reason_type: 'stale_log',
-          reason: `No log entries for ${daysSince} days`
-        });
-      }
-    }
-    // Stuck growth stages
-    const threshold = stuckThresholds[p.current_stage];
-    if (threshold) {
-      const stageStart = p.seeded_date || p.created_at;
-      const daysInStage = Math.floor((Date.now() - new Date(stageStart).getTime()) / 86400000);
-      if (daysInStage >= threshold && !seen.has(p.id)) {
-        seen.add(p.id);
-        plantsNeedingAttention.push({
-          plant_id: p.id, plant_name: p.name, species: p.species,
-          garden_id: p.gid, garden_name: p.garden_name,
-          current_stage: p.current_stage, reason_type: 'stuck_stage',
-          reason: `In ${p.current_stage} stage for ${daysInStage} days`
-        });
-      }
-    }
-  }
-
   res.json({
     total_plants: totalPlants.count,
     total_active_tasks: totalTasks.count,
@@ -982,8 +909,6 @@ app.get('/api/dashboard/stats', requireAuth, (req, res) => {
     total_gardens: totalGardens.count,
     upcoming_tasks: upcomingTasks,
     recent_activity: recentActivity,
-    environment_alerts: environmentAlerts,
-    plants_needing_attention: plantsNeedingAttention.slice(0, 10),
   });
 });
 
@@ -996,6 +921,16 @@ app.get('/api/audit', (req, res) => {
 });
 
 // === CSV Export ===
+
+// Neutralize spreadsheet formula injection: a cell starting with = + - @
+// (or tab/CR) executes as a formula when opened in Excel/LibreOffice.
+// Prefixing with a single quote forces text interpretation.
+function csvCell(value) {
+  const str = value == null ? '' : String(value);
+  const escaped = str.replace(/"/g, '""');
+  return /^[=+\-@\t\r]/.test(escaped) ? `"'${escaped}"` : `"${escaped}"`;
+}
+
 app.get('/api/export/logs/:gardenId', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
 
@@ -1008,8 +943,8 @@ app.get('/api/export/logs/:gardenId', requireAuth, (req, res) => {
     l.ph ?? '',
     l.ppm ?? '',
     l.water_temp ?? '',
-    `"${(l.nutrients || '').replace(/"/g, '""')}"`,
-    `"${(l.notes || '').replace(/"/g, '""')}"`
+    csvCell(l.nutrients),
+    csvCell(l.notes)
   ]);
 
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -1026,16 +961,16 @@ app.get('/api/export/plants/:gardenId', requireAuth, (req, res) => {
 
   const headers = ['Name', 'Type', 'Species', 'Stage', 'Seeded', 'Transplanted', 'Harvest Date', 'Yield', 'Active', 'Notes'];
   const rows = plants.map(p => [
-    `"${(p.name || '').replace(/"/g, '""')}"`,
+    csvCell(p.name),
     p.plant_type,
-    `"${(p.species || '').replace(/"/g, '""')}"`,
+    csvCell(p.species),
     p.current_stage,
     p.seeded_date || '',
     p.transplanted_date || '',
     p.harvest_date || '',
     p.yield_amount ?? '',
     p.is_active ? 'Yes' : 'No',
-    `"${(p.notes || '').replace(/"/g, '""')}"`
+    csvCell(p.notes)
   ]);
 
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -1158,12 +1093,16 @@ app.get('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   res.json(listWebhooks());
 });
 
-app.post('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/webhooks', requireAuth, requireAdmin, async (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
   if (!name || !url) return res.status(400).json({ error: 'Name and URL are required' });
 
-  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  try {
+    await assertSafeWebhookUrl(url);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 
   const secret = V.str(req.body.secret, 200);
   const events = Array.isArray(req.body.events) ? req.body.events : [];
@@ -1174,13 +1113,17 @@ app.post('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json(webhook);
 });
 
-app.put('/api/webhooks/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/webhooks/:id', requireAuth, requireAdmin, async (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
   if (!name || !url) return res.status(400).json({ error: 'Invalid input' });
 
-  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  try {
+    await assertSafeWebhookUrl(url);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 
   const secret = V.str(req.body.secret, 200);
   const events = Array.isArray(req.body.events) ? req.body.events : [];
@@ -1211,6 +1154,12 @@ app.post('/api/webhooks/:id/test', requireAuth, requireAdmin, async (req, res) =
   const wh = getWebhook(req.params.id);
   if (!wh) return res.status(404).json({ error: 'Not found' });
 
+  try {
+    await assertSafeWebhookUrl(wh.url);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
   const testPayload = { event: 'test', webhook_id: wh.id, timestamp: new Date().toISOString(), message: 'Test webhook from CultiVue' };
 
   try {
@@ -1229,277 +1178,6 @@ app.post('/api/webhooks/:id/test', requireAuth, requireAdmin, async (req, res) =
   } catch (err) {
     res.json({ success: false, status: 0, body: err.message });
   }
-});
-
-// === Planting Calendar API ===
-app.get('/api/planting-calendar', requireAuth, (req, res) => {
-  const settings = getAllSettings();
-  const zone = parseInt(req.query.zone, 10) || parseInt(settings.usda_zone, 10) || 7;
-  const zoneGroup = zone <= 4 ? 'cold' : zone <= 7 ? 'temperate' : 'warm';
-
-  try {
-    const rows = db.prepare(
-      'SELECT * FROM planting_index WHERE zone_group = ? ORDER BY category, name'
-    ).all(zoneGroup);
-    res.json({ zone, zone_group: zoneGroup, crops: rows });
-  } catch {
-    res.json({ zone, zone_group: zoneGroup, crops: [] });
-  }
-});
-
-app.get('/api/planting-calendar/month/:month', requireAuth, (req, res) => {
-  const month = V.int(req.params.month, 1, 12);
-  if (!month) return res.status(400).json({ error: 'Invalid month (1-12)' });
-
-  const settings = getAllSettings();
-  const zone = parseInt(settings.usda_zone, 10) || 7;
-  const zoneGroup = zone <= 4 ? 'cold' : zone <= 7 ? 'temperate' : 'warm';
-
-  try {
-    const rows = db.prepare(`
-      SELECT * FROM planting_index WHERE zone_group = ? AND (
-        (sow_indoor_start IS NOT NULL AND ? BETWEEN sow_indoor_start AND sow_indoor_end) OR
-        (sow_outdoor_start IS NOT NULL AND ? BETWEEN sow_outdoor_start AND sow_outdoor_end) OR
-        (transplant_start IS NOT NULL AND ? BETWEEN transplant_start AND transplant_end) OR
-        (harvest_start IS NOT NULL AND ? BETWEEN harvest_start AND harvest_end)
-      ) ORDER BY category, name
-    `).all(zoneGroup, month, month, month, month);
-    res.json({ zone, zone_group: zoneGroup, month, crops: rows });
-  } catch {
-    res.json({ zone, zone_group: zoneGroup, month, crops: [] });
-  }
-});
-
-// === Planting Calendar CRUD + Search + Perenual Proxy ===
-
-// In-memory cache for Perenual API responses (max 100 entries, 15 min TTL)
-const perenualCache = new Map();
-function getCached(key) {
-  const entry = perenualCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > 15 * 60 * 1000) { perenualCache.delete(key); return null; }
-  return entry.data;
-}
-function setCache(key, data) {
-  if (perenualCache.size >= 100) {
-    const oldest = perenualCache.keys().next().value;
-    perenualCache.delete(oldest);
-  }
-  perenualCache.set(key, { data, ts: Date.now() });
-}
-
-// 1a. Internal search
-app.get('/api/planting-calendar/search', requireAuth, (req, res) => {
-  const q = V.str(req.query.q, 100);
-  if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
-
-  const rows = db.prepare(
-    'SELECT * FROM planting_index WHERE name LIKE ? ORDER BY name, zone_group'
-  ).all(`%${q}%`);
-
-  const grouped = {};
-  for (const row of rows) {
-    if (!grouped[row.name]) grouped[row.name] = { name: row.name, category: row.category, zones: {} };
-    grouped[row.name].zones[row.zone_group] = row;
-  }
-  res.json({ results: Object.values(grouped) });
-});
-
-// 1b. Perenual API proxy — search
-app.get('/api/planting-calendar/lookup', requireAuth, async (req, res) => {
-  const q = V.str(req.query.q, 100);
-  if (!q || q.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
-
-  const apiKey = getSetting('perenual_api_key');
-  if (!apiKey) return res.status(400).json({ error: 'Perenual API key not configured. Add it in Settings → Integrations.' });
-
-  const cacheKey = `search:${q.toLowerCase()}`;
-  const cached = getCached(cacheKey);
-  if (cached) return res.json(cached);
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const url = `https://perenual.com/api/v2/species-list?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}`;
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      return res.status(502).json({ error: `Perenual API error: ${response.status}`, detail: text.slice(0, 200) });
-    }
-
-    const body = await response.json();
-    const results = (body.data || []).slice(0, 10).map(item => ({
-      id: item.id,
-      common_name: item.common_name,
-      scientific_name: Array.isArray(item.scientific_name) ? item.scientific_name[0] : item.scientific_name,
-      cycle: item.cycle,
-      watering: item.watering,
-      sunlight: Array.isArray(item.sunlight) ? item.sunlight.join(', ') : item.sunlight,
-      hardiness_min: item.hardiness ? item.hardiness.min : null,
-      hardiness_max: item.hardiness ? item.hardiness.max : null,
-    }));
-
-    const result = { results };
-    setCache(cacheKey, result);
-    res.json(result);
-  } catch (err) {
-    if (err.name === 'AbortError') return res.status(504).json({ error: 'Perenual API timeout' });
-    console.error('Perenual search error:', err);
-    res.status(502).json({ error: 'Failed to reach Perenual API' });
-  }
-});
-
-// 1c. Perenual details
-app.get('/api/planting-calendar/lookup/:id', requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id || id < 1) return res.status(400).json({ error: 'Invalid ID' });
-
-  const apiKey = getSetting('perenual_api_key');
-  if (!apiKey) return res.status(400).json({ error: 'Perenual API key not configured' });
-
-  const cacheKey = `detail:${id}`;
-  const cached = getCached(cacheKey);
-  if (cached) return res.json(cached);
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const url = `https://perenual.com/api/v2/species/details/${id}?key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) return res.status(502).json({ error: `Perenual API error: ${response.status}` });
-
-    const item = await response.json();
-    const result = {
-      common_name: item.common_name,
-      scientific_name: Array.isArray(item.scientific_name) ? item.scientific_name[0] : item.scientific_name,
-      cycle: item.cycle,
-      growth_rate: item.growth_rate,
-      care_level: item.care_level,
-      harvest_season: item.harvest_season,
-      flowering_season: item.flowering_season,
-      fruiting_season: item.fruiting_season,
-      propagation: Array.isArray(item.propagation) ? item.propagation.join(', ') : item.propagation,
-      description: item.description,
-      hardiness_min: item.hardiness ? item.hardiness.min : null,
-      hardiness_max: item.hardiness ? item.hardiness.max : null,
-      watering: item.watering,
-      sunlight: Array.isArray(item.sunlight) ? item.sunlight.join(', ') : item.sunlight,
-    };
-    setCache(cacheKey, result);
-    res.json(result);
-  } catch (err) {
-    if (err.name === 'AbortError') return res.status(504).json({ error: 'Perenual API timeout' });
-    console.error('Perenual detail error:', err);
-    res.status(502).json({ error: 'Failed to reach Perenual API' });
-  }
-});
-
-// 1d. Create crop
-app.post('/api/planting-calendar', requireAuth, (req, res) => {
-  const CATEGORIES = ['vegetable', 'herb', 'fruit', 'flower'];
-  const ZONE_GROUPS = ['cold', 'temperate', 'warm'];
-
-  // If all_zones array is provided, batch-insert multiple zone group rows
-  const allZones = Array.isArray(req.body.all_zones) ? req.body.all_zones : [req.body];
-
-  const inserted = [];
-  const txn = db.transaction(() => {
-    for (const z of allZones) {
-      const name = V.reqStr(z.name, 100);
-      if (!name) throw new Error('Crop name is required');
-      const category = V.enumVal(z.category, CATEGORIES);
-      if (!category) throw new Error('Valid category is required');
-      const zone_group = V.enumVal(z.zone_group, ZONE_GROUPS);
-      if (!zone_group) throw new Error('Valid zone group is required');
-
-      const id = uuidv4();
-      const sow_indoor_start = V.int(z.sow_indoor_start, 1, 12) || null;
-      const sow_indoor_end = V.int(z.sow_indoor_end, 1, 12) || null;
-      const sow_outdoor_start = V.int(z.sow_outdoor_start, 1, 12) || null;
-      const sow_outdoor_end = V.int(z.sow_outdoor_end, 1, 12) || null;
-      const transplant_start = V.int(z.transplant_start, 1, 12) || null;
-      const transplant_end = V.int(z.transplant_end, 1, 12) || null;
-      const harvest_start = V.int(z.harvest_start, 1, 12) || null;
-      const harvest_end = V.int(z.harvest_end, 1, 12) || null;
-      const days_to_maturity_min = V.int(z.days_to_maturity_min, 0, 9999) || null;
-      const days_to_maturity_max = V.int(z.days_to_maturity_max, 0, 9999) || null;
-      const notes = V.str(z.notes, 2000) || null;
-
-      db.prepare(`INSERT INTO planting_index (id, name, category, zone_group, sow_indoor_start, sow_indoor_end, sow_outdoor_start, sow_outdoor_end, transplant_start, transplant_end, harvest_start, harvest_end, days_to_maturity_min, days_to_maturity_max, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, name, category, zone_group, sow_indoor_start, sow_indoor_end, sow_outdoor_start, sow_outdoor_end, transplant_start, transplant_end, harvest_start, harvest_end, days_to_maturity_min, days_to_maturity_max, notes);
-
-      inserted.push({ id, name, category, zone_group });
-    }
-  });
-
-  try {
-    txn();
-    logAudit(req.user, 'create', 'planting_crop', inserted[0]?.id, `Created crop "${inserted[0]?.name}" (${inserted.length} zone(s))`, getClientIP(req));
-    res.status(201).json({ success: true, crops: inserted });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// 1e. Get single crop by name (all zone groups)
-app.get('/api/planting-calendar/crop/:name', requireAuth, (req, res) => {
-  const name = decodeURIComponent(req.params.name);
-  const rows = db.prepare('SELECT * FROM planting_index WHERE name = ? ORDER BY zone_group').all(name);
-  if (!rows.length) return res.status(404).json({ error: 'Crop not found' });
-
-  const zones = {};
-  for (const row of rows) zones[row.zone_group] = row;
-  res.json({ name: rows[0].name, category: rows[0].category, zones });
-});
-
-// 1f. Update crop
-app.put('/api/planting-calendar/:id', requireAuth, (req, res) => {
-  const CATEGORIES = ['vegetable', 'herb', 'fruit', 'flower'];
-
-  const existing = db.prepare('SELECT * FROM planting_index WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Crop not found' });
-
-  const name = V.reqStr(req.body.name, 100);
-  if (!name) return res.status(400).json({ error: 'Crop name is required' });
-  const category = V.enumVal(req.body.category, CATEGORIES);
-  if (!category) return res.status(400).json({ error: 'Valid category is required' });
-
-  const sow_indoor_start = V.int(req.body.sow_indoor_start, 1, 12) || null;
-  const sow_indoor_end = V.int(req.body.sow_indoor_end, 1, 12) || null;
-  const sow_outdoor_start = V.int(req.body.sow_outdoor_start, 1, 12) || null;
-  const sow_outdoor_end = V.int(req.body.sow_outdoor_end, 1, 12) || null;
-  const transplant_start = V.int(req.body.transplant_start, 1, 12) || null;
-  const transplant_end = V.int(req.body.transplant_end, 1, 12) || null;
-  const harvest_start = V.int(req.body.harvest_start, 1, 12) || null;
-  const harvest_end = V.int(req.body.harvest_end, 1, 12) || null;
-  const days_to_maturity_min = V.int(req.body.days_to_maturity_min, 0, 9999) || null;
-  const days_to_maturity_max = V.int(req.body.days_to_maturity_max, 0, 9999) || null;
-  const notes = V.str(req.body.notes, 2000) || null;
-
-  db.prepare(`UPDATE planting_index SET name=?, category=?, sow_indoor_start=?, sow_indoor_end=?, sow_outdoor_start=?, sow_outdoor_end=?, transplant_start=?, transplant_end=?, harvest_start=?, harvest_end=?, days_to_maturity_min=?, days_to_maturity_max=?, notes=? WHERE id=?`)
-    .run(name, category, sow_indoor_start, sow_indoor_end, sow_outdoor_start, sow_outdoor_end, transplant_start, transplant_end, harvest_start, harvest_end, days_to_maturity_min, days_to_maturity_max, notes, req.params.id);
-
-  logAudit(req.user, 'update', 'planting_crop', req.params.id, `Updated crop "${name}"`, getClientIP(req));
-  res.json({ success: true });
-});
-
-// 1g. Delete crop
-app.delete('/api/planting-calendar/:id', requireAuth, (req, res) => {
-  const existing = db.prepare('SELECT * FROM planting_index WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Crop not found' });
-
-  if (req.query.all === 'true') {
-    db.prepare('DELETE FROM planting_index WHERE name = ?').run(existing.name);
-    logAudit(req.user, 'delete', 'planting_crop', req.params.id, `Deleted all zones for crop "${existing.name}"`, getClientIP(req));
-  } else {
-    db.prepare('DELETE FROM planting_index WHERE id = ?').run(req.params.id);
-    logAudit(req.user, 'delete', 'planting_crop', req.params.id, `Deleted crop "${existing.name}" (${existing.zone_group})`, getClientIP(req));
-  }
-  res.json({ success: true });
 });
 
 // SPA fallback
