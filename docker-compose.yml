@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "8778:3000"
+    environment:
+      - NODE_ENV=production
     volumes:
       - cultivue-data:/app/data
     restart: unless-stopped

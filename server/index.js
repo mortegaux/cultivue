@@ -22,7 +22,7 @@ const {
 const {
   VALID_EVENTS,
   listWebhooks, getWebhook, createWebhook, updateWebhook, deleteWebhook,
-  getWebhookLogs, fireWebhook,
+  getWebhookLogs, fireWebhook, isWebhookUrlAllowed,
 } = require('./webhooks');
 
 const app = express();
@@ -77,6 +77,9 @@ app.use(compression());
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.disable('x-powered-by');
+// Trust the first proxy hop (e.g. reverse proxy in front of the app) so
+// req.ip reflects the client. Only enable when actually behind a proxy;
+// otherwise clients could spoof X-Forwarded-For.
 app.set('trust proxy', 1);
 
 function getClientIP(req) {
@@ -84,9 +87,13 @@ function getClientIP(req) {
 }
 
 function sessionCookieOpts(expires) {
+  // Secure cookies in production by default; COOKIE_SECURE explicitly overrides.
+  const secure = process.env.COOKIE_SECURE !== undefined
+    ? process.env.COOKIE_SECURE === 'true'
+    : process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true',
+    secure,
     sameSite: 'lax',
     path: '/',
     expires,
@@ -214,6 +221,11 @@ app.post('/api/auth/change-password', requireAuth, authLimiter, async (req, res)
   try {
     const result = await changePassword(req.user.id, req.body.current_password, req.body.new_password);
     if (result.error) return res.status(400).json({ error: result.error });
+
+    // Revoke all other sessions; keep the current one so the user stays logged in.
+    const crypto = require('crypto');
+    const currentHash = crypto.createHash('sha256').update(req.cookies.session).digest('hex');
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(req.user.id, currentHash);
 
     logAudit(req.user, 'update', 'user', req.user.id, 'Changed password', getClientIP(req));
     res.json({ success: true });
@@ -583,11 +595,16 @@ app.get('/api/gardens/:gardenId/logs', (req, res) => {
   const limit = V.int(req.query.limit, 1, 5000) || 1000;
   const from = req.query.from || null;
   const to = req.query.to || null;
+  // Reject invalid dates with 400 instead of throwing on toISOString().
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if ((from && !dateRe.test(from)) || (to && !dateRe.test(to))) {
+    return res.status(400).json({ error: 'Invalid date filter (expected YYYY-MM-DD)' });
+  }
 
   let sql = 'SELECT * FROM log_entries WHERE garden_id=?';
   const params = [req.params.gardenId];
-  if (from) { sql += ' AND timestamp >= ?'; params.push(new Date(from).toISOString()); }
-  if (to) { sql += ' AND timestamp <= ?'; params.push(new Date(to + 'T23:59:59').toISOString()); }
+  if (from) { sql += ' AND timestamp >= ?'; params.push(from); }
+  if (to) { sql += ' AND timestamp <= ?'; params.push(to + 'T23:59:59'); }
   sql += ' ORDER BY timestamp DESC LIMIT ?';
   params.push(limit);
 
@@ -996,6 +1013,14 @@ app.get('/api/audit', (req, res) => {
 });
 
 // === CSV Export ===
+// Neutralize CSV formula injection: prefix cells starting with =,+,-,@ with a single quote.
+function csvCell(val) {
+  const s = String(val ?? '');
+  const escaped = s.replace(/"/g, '""');
+  const needsGuard = /^[=+\-@]/.test(s);
+  return `"${needsGuard ? "'" : ''}${escaped}"`;
+}
+
 app.get('/api/export/logs/:gardenId', requireAuth, (req, res) => {
   if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
 
@@ -1008,8 +1033,8 @@ app.get('/api/export/logs/:gardenId', requireAuth, (req, res) => {
     l.ph ?? '',
     l.ppm ?? '',
     l.water_temp ?? '',
-    `"${(l.nutrients || '').replace(/"/g, '""')}"`,
-    `"${(l.notes || '').replace(/"/g, '""')}"`
+    csvCell(l.nutrients || ''),
+    csvCell(l.notes || '')
   ]);
 
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -1026,16 +1051,16 @@ app.get('/api/export/plants/:gardenId', requireAuth, (req, res) => {
 
   const headers = ['Name', 'Type', 'Species', 'Stage', 'Seeded', 'Transplanted', 'Harvest Date', 'Yield', 'Active', 'Notes'];
   const rows = plants.map(p => [
-    `"${(p.name || '').replace(/"/g, '""')}"`,
+    csvCell(p.name || ''),
     p.plant_type,
-    `"${(p.species || '').replace(/"/g, '""')}"`,
+    csvCell(p.species || ''),
     p.current_stage,
     p.seeded_date || '',
     p.transplanted_date || '',
     p.harvest_date || '',
     p.yield_amount ?? '',
     p.is_active ? 'Yes' : 'No',
-    `"${(p.notes || '').replace(/"/g, '""')}"`
+    csvCell(p.notes || '')
   ]);
 
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -1158,12 +1183,12 @@ app.get('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   res.json(listWebhooks());
 });
 
-app.post('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/webhooks', requireAuth, requireAdmin, async (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
   if (!name || !url) return res.status(400).json({ error: 'Name and URL are required' });
 
-  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  if (!(await isWebhookUrlAllowed(url))) return res.status(400).json({ error: 'URL must be a public http(s) address' });
 
   const secret = V.str(req.body.secret, 200);
   const events = Array.isArray(req.body.events) ? req.body.events : [];
@@ -1174,13 +1199,13 @@ app.post('/api/webhooks', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json(webhook);
 });
 
-app.put('/api/webhooks/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/webhooks/:id', requireAuth, requireAdmin, async (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
   const name = V.reqStr(req.body.name, 100);
   const url = V.reqStr(req.body.url, 2000);
   if (!name || !url) return res.status(400).json({ error: 'Invalid input' });
 
-  try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  if (!(await isWebhookUrlAllowed(url))) return res.status(400).json({ error: 'URL must be a public http(s) address' });
 
   const secret = V.str(req.body.secret, 200);
   const events = Array.isArray(req.body.events) ? req.body.events : [];

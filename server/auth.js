@@ -50,10 +50,30 @@ function validatePasswordStrength(password) {
 }
 
 async function setupAdmin(username, displayName, password) {
-  if (hasUsers()) {
+  // Atomic: only insert the admin if no users exist yet. The WHERE NOT EXISTS
+  // makes the check-and-insert a single statement, closing the race where two
+  // concurrent setup requests could both create an admin.
+  const pwError = validatePasswordStrength(password);
+  if (pwError) return { error: pwError };
+  if (!username || typeof username !== 'string' || username.length < 3 || username.length > 30) {
+    return { error: 'Username must be 3-30 characters' };
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+    return { error: 'Username may only contain letters, numbers, underscores, dots, and hyphens' };
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const id = uuidv4();
+  const created_at = new Date().toISOString();
+
+  const info = db.prepare(`INSERT INTO users (id, username, display_name, password_hash, is_admin, must_change_password, created_at)
+    SELECT ?, ?, ?, ?, 1, 0, ? WHERE NOT EXISTS (SELECT 1 FROM users)`)
+    .run(id, username, displayName, passwordHash, created_at);
+
+  if (info.changes === 0) {
     return { error: 'Setup already completed' };
   }
-  return createUser(username, displayName, password, true, false);
+  return { user: { id, username, display_name: displayName, is_admin: true } };
 }
 
 async function createUser(username, displayName, password, isAdmin = false, mustChangePassword = true) {

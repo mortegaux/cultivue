@@ -1,14 +1,55 @@
 'use strict';
 
 const crypto = require('crypto');
+const dns = require('dns').promises;
 const db = require('./database');
 const { v4: uuidv4 } = require('uuid');
 
 const VALID_EVENTS = ['sensor_reading', 'metric_alert', 'task_due', 'harvest'];
 
+// SSRF protection: block webhook URLs pointing at private/internal addresses.
+function isPrivateIP(ip) {
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [, a, b] = v4.map(Number);
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    return false;
+  }
+  const low = ip.toLowerCase();
+  if (low === '::1' || low.startsWith('fc') || low.startsWith('fd') || low.startsWith('fe80')) return true;
+  return false;
+}
+
+async function isWebhookUrlAllowed(url) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return false; }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return false;
+  if (/^[\d.]+$/.test(host) || host.includes(':')) {
+    return !isPrivateIP(host);
+  }
+  try {
+    const addrs = await dns.lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every(a => !isPrivateIP(a.address));
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeWebhook(w) {
+  if (!w) return w;
+  const { secret, ...rest } = w;
+  return { ...rest, has_secret: !!secret };
+}
+
 function listWebhooks() {
   return db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all()
-    .map(w => ({ ...w, is_active: !!w.is_active, events: w.events ? w.events.split(',') : [] }));
+    .map(w => sanitizeWebhook({ ...w, is_active: !!w.is_active, events: w.events ? w.events.split(',') : [] }));
 }
 
 function getWebhook(id) {
@@ -94,5 +135,5 @@ async function fireWebhook(event, payload) {
 module.exports = {
   VALID_EVENTS,
   listWebhooks, getWebhook, createWebhook, updateWebhook, deleteWebhook,
-  getWebhookLogs, fireWebhook,
+  getWebhookLogs, fireWebhook, isWebhookUrlAllowed, sanitizeWebhook,
 };
