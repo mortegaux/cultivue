@@ -20,10 +20,11 @@ CultiVue is a garden management web app supporting hydroponic, soil, container, 
 - **Settings utility**: `server/settings.js`
 - **Auth**: bcrypt password hashing, session cookies, HMAC API keys for devices
 
-### Deployment
+### Deployment & User Testing
 - Docker Compose: `docker compose up --build -d`
 - Host port **8778** maps to container port **3000**
 - Data volume persists SQLite database across rebuilds
+- **User Testing Workflow**: The user runs a separate Docker instance on their server for testing. Do not run or keep a local background dev server running for user testing. When changes are tested locally via `npm test` and pushed to GitHub (`main`), notify the user so they can pull and re-deploy on their Docker server.
 
 ## Key Patterns
 
