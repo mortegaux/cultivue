@@ -72,10 +72,13 @@ function dateOnly(val) {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
-// Validate enum value against allow-list
+// Validate enum value against allow-list (case-insensitive, returns canonical allow-list value)
 function enumVal(val, allowed) {
   if (!val || typeof val !== 'string') return null;
-  return allowed.includes(val) ? val : null;
+  if (allowed.includes(val)) return val;
+  const lower = val.toLowerCase();
+  const match = allowed.find(a => a.toLowerCase() === lower);
+  return match || null;
 }
 
 // Validate UUID format (basic check)

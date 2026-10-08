@@ -138,6 +138,27 @@ describe('Gardens API', function () {
       assert.strictEqual(res.status, 200);
     });
 
+    it('POST /api/gardens/:id/plants — create houseplant with thriving stage', async function () {
+      const res = await request.post(`/api/gardens/${gardenId}/plants`)
+        .set('Cookie', cookie)
+        .send({ name: 'Fiddle Leaf Fig', plant_type: 'houseplant', species: 'Ficus lyrata', current_stage: 'Thriving' });
+      assert.strictEqual(res.status, 201);
+      assert.strictEqual(res.body.current_stage, 'thriving');
+      assert.strictEqual(res.body.plant_type, 'houseplant');
+
+      const updateRes = await request.put(`/api/plants/${res.body.id}`)
+        .set('Cookie', cookie)
+        .send({ name: 'Fiddle Leaf Fig', plant_type: 'houseplant', species: 'Ficus lyrata', current_stage: 'thriving', is_active: true });
+      assert.strictEqual(updateRes.status, 200);
+      assert.strictEqual(updateRes.body.success, true);
+
+      const listRes = await request.get(`/api/gardens/${gardenId}/plants`).set('Cookie', cookie);
+      const updated = listRes.body.find(p => p.id === res.body.id);
+      assert.strictEqual(updated.current_stage, 'thriving');
+
+      await request.delete(`/api/plants/${res.body.id}`).set('Cookie', cookie);
+    });
+
     it('DELETE /api/plants/:id', async function () {
       const res = await request.delete(`/api/plants/${plantId}`).set('Cookie', cookie);
       assert.strictEqual(res.status, 200);

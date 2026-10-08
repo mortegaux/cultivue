@@ -21,7 +21,7 @@ function buildInitialPlantData(crop, month, state = { seeds: [], selectedGardenI
   else if (cat === 'houseplant') plant_type = 'houseplant';
   else plant_type = 'other';
 
-  let current_stage = 'seed';
+  let current_stage = cat === 'houseplant' ? 'acquired' : 'seed';
   if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) {
     current_stage = 'seedling';
   } else if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) {

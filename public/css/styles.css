@@ -308,7 +308,7 @@ input, select, textarea { font: inherit; }
 .badge-icon { font-size: 14px; vertical-align: middle; margin-right: 2px; }
 .badge {
   display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px;
-  font-size: 0.75rem; font-weight: 600;
+  font-size: 0.75rem; font-weight: 600; text-transform: capitalize;
 }
 .badge-green { background: var(--green-light); color: var(--green); }
 .badge-blue { background: var(--secondary-light); color: var(--secondary); }

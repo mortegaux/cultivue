@@ -627,6 +627,36 @@ function stagesForType(plantType) {
   return plantType === 'houseplant' ? HOUSEPLANT_STAGES : GROWTH_STAGES;
 }
 const STAGE_COLORS = { seed: 'gray', germination: 'purple', seedling: 'blue', vegetative: 'green', flowering: 'amber', fruiting: 'red', harvest: 'green', acquired: 'blue', acclimating: 'amber', established: 'green', thriving: 'green' };
+const STAGE_LABELS = {
+  seed: 'Seed',
+  germination: 'Germination',
+  seedling: 'Seedling',
+  vegetative: 'Vegetative',
+  flowering: 'Flowering',
+  fruiting: 'Fruiting',
+  harvest: 'Harvest',
+  acquired: 'Acquired',
+  acclimating: 'Acclimating',
+  established: 'Established',
+  thriving: 'Thriving'
+};
+function formatStage(stage) {
+  if (!stage) return '';
+  return STAGE_LABELS[stage] || (stage.charAt(0).toUpperCase() + stage.slice(1));
+}
+const PLANT_TYPE_LABELS = {
+  vegetables: 'Vegetables',
+  fruits: 'Fruits',
+  herbs: 'Herbs',
+  cannabis: 'Cannabis',
+  flowers: 'Flowers',
+  houseplant: 'Houseplant',
+  other: 'Other'
+};
+function formatPlantType(type) {
+  if (!type) return '';
+  return PLANT_TYPE_LABELS[type] || (type.charAt(0).toUpperCase() + type.slice(1));
+}
 const PLANT_ICONS = { vegetables: 'nutrition', fruits: 'local_florist', herbs: 'spa', cannabis: 'grass', flowers: 'filter_vintage', houseplant: 'potted_plant', other: 'eco' };
 
 // === Tag Select Component ===
@@ -952,7 +982,7 @@ async function renderDashboard(main) {
         <h2 class="section-heading"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px;color:var(--error)">eco</span> Plants Needing Attention</h2>
         <div class="card" style="padding:0"><div class="attention-list">${attention.map(p => `
           <div class="attention-item" data-garden-id="${p.garden_id}">
-            <span class="badge badge-${STAGE_COLORS[p.current_stage] || 'gray'}">${esc(p.current_stage)}</span>
+            <span class="badge badge-${STAGE_COLORS[p.current_stage] || 'gray'}">${esc(formatStage(p.current_stage))}</span>
             <span class="attention-name">${esc(p.plant_name)}</span>
             <span class="attention-species">${esc(p.species)}</span>
             <span class="attention-garden">${esc(p.garden_name)}</span>
@@ -2213,7 +2243,7 @@ async function renderPlants(main) {
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       <select class="form-input" id="gardenFilter" style="width:auto" aria-label="Filter by garden"><option value="">All Gardens</option>${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>
       ${locations.length ? `<select class="form-input" id="locationFilter" style="width:auto" aria-label="Filter by location"><option value="">All Locations</option>${locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select>` : ''}
-      <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${ALL_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
+      <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${ALL_STAGES.map(s => `<option value="${s}">${formatStage(s)}</option>`).join('')}</select>
     </div>
     <div id="plantsList"><p class="loading-text">Loading...</p></div>`;
 
@@ -2258,7 +2288,7 @@ function renderPlantsGrid(plants, el, showGarden = false) {
       <span class="material-symbols-outlined garden-row-icon">${PLANT_ICONS[plant.plant_type] || 'eco'}</span>
       <span class="garden-row-name">${esc(plant.name)}</span>
       <span class="garden-row-badges">
-        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
+        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${esc(formatStage(plant.current_stage))}</span>
         ${showGarden && plant._gardenName ? `<span class="badge badge-blue">${esc(plant._gardenName)}</span>` : ''}
       </span>
     </button>`;
@@ -2279,7 +2309,7 @@ function applyPlantTypeFields(plantType) {
   if (stageSelect) {
     const current = stageSelect.value;
     const stages = stagesForType(plantType);
-    stageSelect.innerHTML = stages.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('');
+    stageSelect.innerHTML = stages.map(s => `<option value="${s}">${formatStage(s)}</option>`).join('');
     stageSelect.value = stages.includes(current) ? current : stages[0];
   }
   const seedRow = document.getElementById('pf-seed-row');
@@ -2319,7 +2349,7 @@ function showAddPlantModal(gardenId, initialData = {}) {
     <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-type" name="plant_type" required aria-required="true">${PLANT_TYPES.map(t => `<option value="${t}" ${t === plantTypeVal ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
       <div class="form-group"><label for="pf-species">Species <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-species" name="species" placeholder="e.g., Cherry Tomato" value="${esc(speciesVal)}" required aria-required="true"></div></div>
     <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${seededDateVal}"></div>
-      <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plantTypeVal).map(s => `<option value="${s}" ${s === stageVal ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></div>
+      <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plantTypeVal).map(s => `<option value="${s}" ${s === stageVal ? 'selected' : ''}>${formatStage(s)}</option>`).join('')}</select></div></div>
     ${state.seeds.length ? `<div class="form-group" id="pf-seed-row"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}" ${s.id === seedIdVal ? 'selected' : ''}>${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
     <div class="form-row" id="pf-hydro-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0" value="${initialPhVal}"></div>
       <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" placeholder="800" value="${initialPpmVal}"></div></div>
@@ -2375,8 +2405,8 @@ function showPlantDetail(id) {
     </div>
     <div class="drawer-body">
       <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${plant.current_stage}</span>
-        <span class="badge badge-gray">${esc(plant.plant_type)}</span>
+        <span class="badge badge-${STAGE_COLORS[plant.current_stage] || 'gray'}">${esc(formatStage(plant.current_stage))}</span>
+        <span class="badge badge-gray">${esc(formatPlantType(plant.plant_type))}</span>
         ${seedName ? `<span class="badge badge-green">Seed: ${esc(seedName)}</span>` : ''}
       </div>
       <div class="detail-grid">
@@ -2428,7 +2458,7 @@ function showEditPlantModal(plant) {
       <div class="form-group"><label for="pf-species">Species</label><input class="form-input" id="pf-species" name="species" value="${esc(plant.species)}" required></div></div>
     <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">${isHouseplant ? 'Acquired Date' : 'Seeded Date'}</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${seededDate}"></div>
       <div class="form-group"><label for="pf-transplanted">Transplanted Date</label><input class="form-input" id="pf-transplanted" name="transplanted_date" type="date" value="${transplantedDate}"></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plant.plant_type).map(s => `<option value="${s}" ${plant.current_stage === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div>
+    <div class="form-row"><div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plant.plant_type).map(s => `<option value="${s}" ${plant.current_stage === s ? 'selected' : ''}>${formatStage(s)}</option>`).join('')}</select></div>
       <div class="form-group" id="pf-harvest-row" ${isHouseplant ? 'hidden' : ''}><label for="pf-harvest">Harvest Date</label><input class="form-input" id="pf-harvest" name="harvest_date" type="date" value="${harvestDate}"></div></div>
     <div class="form-row"><div class="form-group" id="pf-yield-field" ${isHouseplant ? 'hidden' : ''}><label for="pf-yield">Yield Amount</label><input class="form-input" id="pf-yield" name="yield_amount" type="number" step="0.1" value="${plant.yield_amount || ''}"></div>
       <div class="form-group"><label class="checkbox-label" style="margin-top:28px"><input type="checkbox" name="is_active" ${plant.is_active ? 'checked' : ''}> Active</label></div></div>
@@ -2577,7 +2607,7 @@ async function showSeedDetail(seedId) {
         ${metrics.failures.length ? `
           <h3 style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px">Failure Breakdown</h3>
           ${metrics.failures.map(f => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-            <span>${esc(f.failure_stage)}${f.failure_reason ? ': ' + esc(f.failure_reason) : ''}</span>
+            <span>${esc(formatStage(f.failure_stage))}${f.failure_reason ? ': ' + esc(f.failure_reason) : ''}</span>
             <span class="badge badge-red">${f.count}</span>
           </div>`).join('')}
         ` : '<p class="empty-text">No failures recorded.</p>'}
@@ -2725,7 +2755,7 @@ function buildInitialPlantData(crop, month) {
   else plant_type = 'other';
 
   // Growth Stage: determine by activity in clicked month, or current month
-  let current_stage = 'seed';
+  let current_stage = cat === 'houseplant' ? 'acquired' : 'seed';
   if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) {
     current_stage = 'seedling';
   } else if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) {
@@ -2992,7 +3022,7 @@ async function showCropDetail(cropName) {
       </div>
       <div class="drawer-body">
         <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-          <span class="badge badge-green">${esc(crop.category)}</span>
+          <span class="badge badge-green">${esc(crop.category ? crop.category.charAt(0).toUpperCase() + crop.category.slice(1) : '')}</span>
           ${anyZone?.days_to_maturity_min ? `<span class="badge badge-blue">${anyZone.days_to_maturity_min}–${anyZone.days_to_maturity_max || '?'} days to maturity</span>` : ''}
         </div>
         ${Object.entries(crop.zones).map(([zg, z]) => `
