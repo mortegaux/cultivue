@@ -50,6 +50,14 @@ Multi-step OOBE wizard.
 ### GET /garden-types
 **Response:** `[{ id, category, subcategory, display_name, is_enabled, sort_order }]`
 
+### PUT /garden-types/:id (admin)
+**Body:** `{ is_enabled }`
+**Response:** `200 { success: true }`
+
+### PUT /garden-types/category/:category (admin)
+**Body:** `{ is_enabled }`
+**Response:** `200 { success: true, count }`
+
 ### GET /garden-types/:id/metrics
 **Response:** `[{ id, name, unit_metric, unit_imperial, data_type, min_value, max_value, ideal_min, ideal_max, decimal_places, is_required }]`
 

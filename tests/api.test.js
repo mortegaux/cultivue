@@ -200,6 +200,45 @@ describe('Garden Types & Metrics API', function () {
     assert.ok(res.body.length > 0);
   });
 
+  it('PUT /api/garden-types/:id — update garden type', async function () {
+    const res = await request.put('/api/garden-types/hydro-dwc')
+      .set('Cookie', cookie)
+      .send({ is_enabled: false });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+
+    const check = await request.get('/api/garden-types').set('Cookie', cookie);
+    const dwc = check.body.find(t => t.id === 'hydro-dwc');
+    assert.strictEqual(dwc.is_enabled, false);
+
+    // Re-enable
+    await request.put('/api/garden-types/hydro-dwc').set('Cookie', cookie).send({ is_enabled: true });
+  });
+
+  it('PUT /api/garden-types/category/:category — disable and enable all in category', async function () {
+    const res = await request.put('/api/garden-types/category/hydroponic')
+      .set('Cookie', cookie)
+      .send({ is_enabled: false });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.ok(res.body.count > 0);
+
+    const check = await request.get('/api/garden-types').set('Cookie', cookie);
+    const hydros = check.body.filter(t => t.category === 'hydroponic');
+    assert.ok(hydros.every(t => t.is_enabled === false));
+
+    // Re-enable all
+    const res2 = await request.put('/api/garden-types/category/hydroponic')
+      .set('Cookie', cookie)
+      .send({ is_enabled: true });
+    assert.strictEqual(res2.status, 200);
+    assert.strictEqual(res2.body.success, true);
+
+    const check2 = await request.get('/api/garden-types').set('Cookie', cookie);
+    const hydros2 = check2.body.filter(t => t.category === 'hydroponic');
+    assert.ok(hydros2.every(t => t.is_enabled === true));
+  });
+
   it('GET /api/garden-types/:id/metrics', async function () {
     const res = await request.get('/api/garden-types/hydro-dwc/metrics').set('Cookie', cookie);
     assert.strictEqual(res.status, 200);

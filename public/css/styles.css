@@ -658,6 +658,100 @@ select.form-input {
 .settings-category .settings-item { padding-left: 0; padding-right: 0; }
 .settings-category .settings-item:last-child { border-bottom: none; }
 
+/* === Garden Types Accordion & Container Controls === */
+.settings-accordion-group {
+  border-bottom: 1px solid var(--border);
+}
+.settings-accordion-group:last-child {
+  border-bottom: none;
+}
+.settings-accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  user-select: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.settings-accordion-header:hover {
+  background: var(--bg-hover);
+}
+.settings-accordion-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+}
+.settings-accordion-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.settings-accordion-chevron {
+  font-size: 20px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.settings-accordion-group.expanded .settings-accordion-chevron {
+  transform: rotate(90deg);
+}
+.settings-accordion-icon {
+  font-size: 20px;
+  color: var(--primary);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.settings-accordion-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.settings-accordion-badge {
+  font-size: 0.75rem;
+  margin-left: 6px;
+  font-weight: 500;
+}
+.settings-accordion-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+.settings-accordion-panel {
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border);
+}
+.settings-accordion-panel[hidden] {
+  display: none;
+}
+.settings-accordion-content .settings-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 50px;
+  padding-right: 20px;
+  background: var(--bg-card);
+  transition: background 0.15s ease;
+}
+.settings-accordion-content .settings-item:hover {
+  background: var(--bg-hover);
+}
+.settings-accordion-content .settings-item:last-child {
+  border-bottom: none;
+}
+
 /* === Accent Picker === */
 .accent-picker { display: flex; gap: 8px; }
 .accent-swatch {
@@ -685,11 +779,14 @@ select.form-input {
   flex-shrink: 0; min-width: 44px;
 }
 .toggle.active { background: var(--primary); }
+.toggle.partial { background: var(--primary); opacity: 0.7; }
 .toggle::after {
   content: ''; width: 20px; height: 20px; background: white; border-radius: 50%;
   position: absolute; top: 2px; left: 2px; transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .toggle.active::after { transform: translateX(20px); }
+.toggle.partial::after { transform: translateX(10px); }
 
 /* === Empty State === */
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-tertiary); }
@@ -1165,6 +1262,8 @@ button.calendar-crop-name:hover { color: var(--primary); text-decoration: underl
   .settings-section-header { padding: 14px 16px; }
   .settings-category { padding: 8px 16px 4px; }
   .settings-category .settings-item { padding-left: 0; padding-right: 0; }
+  .settings-accordion-header { padding: 12px 16px; }
+  .settings-accordion-content .settings-item { padding-left: 36px; padding-right: 16px; flex-direction: row; align-items: center; }
 
   /* Section headings */
   .section-heading { font-size: 0.9rem; margin: 16px 0 8px; }

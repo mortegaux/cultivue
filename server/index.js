@@ -335,11 +335,24 @@ app.get('/api/garden-types', (req, res, next) => {
   res.json(types.map(t => ({ ...t, is_enabled: !!t.is_enabled })));
 });
 
+app.put('/api/garden-types/category/:category', requireAuth, requireAdmin, (req, res) => {
+  const { is_enabled } = req.body;
+  if (typeof is_enabled !== 'boolean') return res.status(400).json({ error: 'is_enabled must be a boolean' });
+  const category = req.params.category.toLowerCase();
+  const existing = db.prepare('SELECT COUNT(*) as count FROM garden_types WHERE category = ?').get(category);
+  if (!existing || existing.count === 0) return res.status(404).json({ error: 'Category not found' });
+  const result = db.prepare('UPDATE garden_types SET is_enabled = ? WHERE category = ?').run(is_enabled ? 1 : 0, category);
+  logAudit(req.user, 'update', 'garden_type', category, `${is_enabled ? 'Enabled' : 'Disabled'} all garden types in category "${category}"`, getClientIP(req));
+  res.json({ success: true, count: result.changes });
+});
+
 app.put('/api/garden-types/:id', requireAuth, requireAdmin, (req, res) => {
   const { is_enabled } = req.body;
   if (typeof is_enabled !== 'boolean') return res.status(400).json({ error: 'is_enabled must be a boolean' });
-  const result = db.prepare('UPDATE garden_types SET is_enabled = ? WHERE id = ?').run(is_enabled ? 1 : 0, req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Garden type not found' });
+  const target = db.prepare('SELECT * FROM garden_types WHERE id = ?').get(req.params.id);
+  if (!target) return res.status(404).json({ error: 'Garden type not found' });
+  db.prepare('UPDATE garden_types SET is_enabled = ? WHERE id = ?').run(is_enabled ? 1 : 0, req.params.id);
+  logAudit(req.user, 'update', 'garden_type', req.params.id, `${is_enabled ? 'Enabled' : 'Disabled'} garden type "${target.display_name}"`, getClientIP(req));
   res.json({ success: true });
 });
 

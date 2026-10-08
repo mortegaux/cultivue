@@ -3562,20 +3562,80 @@ async function renderSettings(main) {
     loadAuditPanel();
     loadGardenTypesSettings();
     document.getElementById('settingsGardenTypes').addEventListener('click', async (e) => {
-      const btn = e.target.closest('[data-toggle-type]');
-      if (!btn) return;
-      const id = btn.dataset.toggleType;
-      const newEnabled = btn.dataset.enabled !== 'true';
-      try {
-        await API.updateGardenType(id, { is_enabled: newEnabled });
-        btn.classList.toggle('active', newEnabled);
-        btn.setAttribute('aria-checked', String(newEnabled));
-        btn.dataset.enabled = String(newEnabled);
-        const gt = state.gardenTypes.find(t => t.id === id);
-        if (gt) gt.is_enabled = newEnabled;
-        toast(`Garden type ${newEnabled ? 'enabled' : 'disabled'}`);
-      } catch (e) {
-        toast(e.message || 'Failed to update garden type', 'error');
+      // 1. Container / category toggle switch clicked
+      const catToggle = e.target.closest('[data-toggle-category]');
+      if (catToggle) {
+        e.stopPropagation();
+        const category = catToggle.dataset.toggleCategory;
+        const catGroup = catToggle.closest('.settings-accordion-group');
+        const childToggles = catGroup ? [...catGroup.querySelectorAll('[data-toggle-type]')] : [];
+        const anyEnabled = childToggles.some(btn => btn.dataset.enabled === 'true');
+        const newEnabled = !anyEnabled;
+
+        catToggle.disabled = true;
+        try {
+          await API.updateGardenTypeCategory(category, { is_enabled: newEnabled });
+          state.gardenTypes.forEach(t => {
+            if (t.category === category) t.is_enabled = newEnabled;
+          });
+          childToggles.forEach(btn => {
+            btn.classList.toggle('active', newEnabled);
+            btn.setAttribute('aria-checked', String(newEnabled));
+            btn.dataset.enabled = String(newEnabled);
+          });
+          updateCategoryContainerUI(catGroup);
+          const catName = catToggle.dataset.categoryName || category;
+          toast(`All ${catName} types ${newEnabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+          toast(err.message || 'Failed to update category', 'error');
+        } finally {
+          catToggle.disabled = false;
+        }
+        return;
+      }
+
+      // 2. Individual garden type toggle clicked
+      const typeToggle = e.target.closest('[data-toggle-type]');
+      if (typeToggle) {
+        e.stopPropagation();
+        const id = typeToggle.dataset.toggleType;
+        const newEnabled = typeToggle.dataset.enabled !== 'true';
+        const catGroup = typeToggle.closest('.settings-accordion-group');
+
+        typeToggle.disabled = true;
+        try {
+          await API.updateGardenType(id, { is_enabled: newEnabled });
+          typeToggle.classList.toggle('active', newEnabled);
+          typeToggle.setAttribute('aria-checked', String(newEnabled));
+          typeToggle.dataset.enabled = String(newEnabled);
+
+          const gt = state.gardenTypes.find(t => t.id === id);
+          if (gt) gt.is_enabled = newEnabled;
+
+          if (catGroup) updateCategoryContainerUI(catGroup);
+          toast(`Garden type ${newEnabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+          toast(err.message || 'Failed to update garden type', 'error');
+        } finally {
+          typeToggle.disabled = false;
+        }
+        return;
+      }
+
+      // 3. Accordion header / trigger clicked
+      const header = e.target.closest('.settings-accordion-header');
+      if (header) {
+        const group = header.closest('.settings-accordion-group');
+        const trigger = group?.querySelector('.settings-accordion-trigger');
+        const panel = group?.querySelector('.settings-accordion-panel');
+        if (trigger && panel) {
+          const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+          const willExpand = !isExpanded;
+          trigger.setAttribute('aria-expanded', String(willExpand));
+          group.classList.toggle('expanded', willExpand);
+          panel.hidden = !willExpand;
+        }
+        return;
       }
     });
     loadWebhooksPanel();
@@ -3590,24 +3650,97 @@ async function renderSettings(main) {
   }
 }
 
+function updateCategoryContainerUI(catGroup) {
+  if (!catGroup) return;
+  const childToggles = [...catGroup.querySelectorAll('[data-toggle-type]')];
+  const total = childToggles.length;
+  const enabledCount = childToggles.filter(btn => btn.dataset.enabled === 'true').length;
+  const allEnabled = total > 0 && enabledCount === total;
+  const isPartial = enabledCount > 0 && enabledCount < total;
+
+  const catToggle = catGroup.querySelector('[data-toggle-category]');
+  if (catToggle) {
+    catToggle.classList.toggle('active', allEnabled);
+    catToggle.classList.toggle('partial', isPartial);
+    catToggle.setAttribute('aria-checked', allEnabled ? 'true' : (isPartial ? 'mixed' : 'false'));
+    catToggle.dataset.enabled = allEnabled ? 'true' : (isPartial ? 'partial' : 'false');
+  }
+
+  const badge = catGroup.querySelector('.settings-accordion-badge');
+  if (badge) {
+    badge.textContent = `${enabledCount}/${total} active`;
+    const badgeClass = enabledCount === 0 ? 'badge-gray' : (allEnabled ? 'badge-green' : 'badge-amber');
+    badge.className = `badge ${badgeClass} settings-accordion-badge`;
+  }
+}
+
 async function loadGardenTypesSettings() {
   try {
     const types = await API.getGardenTypes();
+    state.gardenTypes = types;
     const el = document.getElementById('settingsGardenTypes');
     if (!el) return;
     const catNames = { hydroponic: 'Hydroponic', soil: 'Soil', container: 'Container', aquaponics: 'Aquaponics' };
+    const catIcons = { hydroponic: 'water_drop', soil: 'yard', container: 'potted_plant', aquaponics: 'waves' };
     const categories = {};
-    for (const t of types) { if (!categories[t.category]) categories[t.category] = []; categories[t.category].push(t); }
+    for (const t of types) {
+      if (!categories[t.category]) categories[t.category] = [];
+      categories[t.category].push(t);
+    }
 
-    el.innerHTML = Object.entries(categories).map(([cat, items]) => `
-      <div class="settings-category">
-        <h3 class="settings-category-title">${catNames[cat] || cat}</h3>
-        ${items.map(t => `<div class="settings-item">
-          <div><div class="settings-item-label">${esc(t.display_name)}</div></div>
-          <button class="toggle ${t.is_enabled ? 'active' : ''}" type="button" role="switch" aria-checked="${t.is_enabled}" aria-label="Enable ${t.display_name}" data-toggle-type="${t.id}" data-enabled="${t.is_enabled}"></button>
-        </div>`).join('')}
-      </div>
-    `).join('');
+    el.innerHTML = Object.entries(categories).map(([cat, items]) => {
+      const total = items.length;
+      const enabledCount = items.filter(t => t.is_enabled).length;
+      const allEnabled = total > 0 && enabledCount === total;
+      const isPartial = enabledCount > 0 && enabledCount < total;
+      const catDisplayName = catNames[cat] || cat.charAt(0).toUpperCase() + cat.slice(1);
+      const icon = catIcons[cat] || 'category';
+      const badgeClass = enabledCount === 0 ? 'badge-gray' : (allEnabled ? 'badge-green' : 'badge-amber');
+
+      return `
+        <div class="settings-accordion-group" data-category="${esc(cat)}">
+          <div class="settings-accordion-header">
+            <button type="button" class="settings-accordion-trigger" aria-expanded="false" aria-controls="accordion-cat-${esc(cat)}" id="accordion-trigger-${esc(cat)}">
+              <span class="material-symbols-outlined settings-accordion-chevron" aria-hidden="true">chevron_right</span>
+              <span class="material-symbols-outlined settings-accordion-icon" aria-hidden="true">${icon}</span>
+              <span class="settings-accordion-title">${esc(catDisplayName)}</span>
+              <span class="badge ${badgeClass} settings-accordion-badge">${enabledCount}/${total} active</span>
+            </button>
+            <div class="settings-accordion-action">
+              <button class="toggle ${allEnabled ? 'active' : ''} ${isPartial ? 'partial' : ''}"
+                      type="button"
+                      role="switch"
+                      aria-checked="${allEnabled ? 'true' : (isPartial ? 'mixed' : 'false')}"
+                      aria-label="Toggle all ${esc(catDisplayName)} types"
+                      data-toggle-category="${esc(cat)}"
+                      data-category-name="${esc(catDisplayName)}"
+                      data-enabled="${allEnabled ? 'true' : (isPartial ? 'partial' : 'false')}"
+                      title="Toggle all ${esc(catDisplayName)} types"></button>
+            </div>
+          </div>
+          <div class="settings-accordion-panel" id="accordion-cat-${esc(cat)}" role="region" aria-labelledby="accordion-trigger-${esc(cat)}" hidden>
+            <div class="settings-accordion-content">
+              ${items.map(t => `
+                <div class="settings-item">
+                  <div class="settings-item-info">
+                    <div class="settings-item-label">${esc(t.display_name)}</div>
+                    ${t.subcategory ? `<div class="settings-item-desc">${esc(t.subcategory)}</div>` : ''}
+                  </div>
+                  <button class="toggle ${t.is_enabled ? 'active' : ''}"
+                          type="button"
+                          role="switch"
+                          aria-checked="${t.is_enabled ? 'true' : 'false'}"
+                          aria-label="Enable ${esc(t.display_name)}"
+                          data-toggle-type="${esc(t.id)}"
+                          data-category="${esc(cat)}"
+                          data-enabled="${t.is_enabled ? 'true' : 'false'}"></button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
   } catch {
     const el = document.getElementById('settingsGardenTypes');
     if (el) el.innerHTML = '<div class="settings-item"><div class="settings-item-desc">Could not load garden types.</div></div>';
