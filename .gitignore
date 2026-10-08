@@ -3,3 +3,5 @@ data/
 .DS_Store
 cookies*.txt
 nul
+coverage/
+.nyc_output/

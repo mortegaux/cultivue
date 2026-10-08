@@ -3,6 +3,9 @@
 const path = require('path');
 const fs = require('fs');
 
+// Set test environment
+process.env.NODE_ENV = 'test';
+
 // Use a temp DB for tests
 const testDbPath = path.join(__dirname, '..', 'data', 'test.db');
 

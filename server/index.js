@@ -53,6 +53,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts. Try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
 });
 
 const apiLimiter = rateLimit({
@@ -61,6 +62,7 @@ const apiLimiter = rateLimit({
   message: { error: 'Rate limit exceeded.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
 });
 
 const sensorLimiter = rateLimit({
@@ -70,6 +72,7 @@ const sensorLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.headers['x-api-key'] || req.ip,
+  skip: () => process.env.NODE_ENV === 'test',
 });
 
 // === Middleware ===

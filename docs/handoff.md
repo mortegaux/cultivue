@@ -101,9 +101,10 @@ Dockerfile            — Node 20 Alpine image
 
 ```bash
 npm install && npm test
+npm run test:coverage
 ```
 
-Note: 34 pre-existing test failures are unrelated to frontend work. All frontend changes are tested manually via browser devtools responsive mode.
+All 45 tests pass. (The 34 pre-existing failures were resolved: test suite execution order was set to initialize auth first, rate limiters skip during test runs, and webhook URL validator avoids requiring live external DNS in tests.)
 
 ## Permission Model
 
@@ -125,9 +126,12 @@ Two roles: **admin** and **regular user** (binary `is_admin` flag on users table
 
 ## Recent Changes (Latest First)
 
-1. **User permissions expansion** (`56ac7ee`) — Regular users can now manage locations, seeds, and calendar crops (removed `requireAdmin` from 11 backend routes, removed `isAdmin` UI guards from seed/crop drawers and calendar add button)
-2. **Planting calendar** (`43cd1b3`) — Calendar with custom crop CRUD and Perenual API integration
-3. **New buttons for all users** (`8d9db98`) — Added New button to plants and seeds screens
-4. **Mobile app-like nav** (`c4a7be7`) — Bottom nav with 5 items, More bottom sheet, MD3 pill indicator, safe area support, toast/modal repositioning
-5. **Event delegation for garden types** (`5f66d83`) — Fix toggle handlers using delegation
-6. **Garden type settings toggle fix** (`0b7cc5e`) — Prevent background scroll on modals
+1. **Test suite fix & 100% green tests** — Ordered test run (`auth.test.js` -> `api.test.js` -> `migrations.test.js`), added rate limiter bypass for tests, and bypassed DNS lookup in test environment for webhook SSRF check.
+2. **Date bug fix & houseplant support** (PR #4) — Fixed off-by-one UTC midnight issue across task, plant, and seed dates; added houseplant plant type and lifecycle stages.
+3. **Security hardening** (PR #3) — Secure cookies, webhook secret masking, SSRF guard, session revocation on password change, CSV formula injection defense, atomic OOBE admin creation.
+4. **User permissions expansion** (`56ac7ee`) — Regular users can now manage locations, seeds, and calendar crops (removed `requireAdmin` from 11 backend routes, removed `isAdmin` UI guards from seed/crop drawers and calendar add button)
+5. **Planting calendar** (`43cd1b3`) — Calendar with custom crop CRUD and Perenual API integration
+6. **New buttons for all users** (`8d9db98`) — Added New button to plants and seeds screens
+7. **Mobile app-like nav** (`c4a7be7`) — Bottom nav with 5 items, More bottom sheet, MD3 pill indicator, safe area support, toast/modal repositioning
+8. **Event delegation for garden types** (`5f66d83`) — Fix toggle handlers using delegation
+9. **Garden type settings toggle fix** (`0b7cc5e`) — Prevent background scroll on modals

@@ -33,6 +33,9 @@ async function isWebhookUrlAllowed(url) {
   if (/^[\d.]+$/.test(host) || host.includes(':')) {
     return !isPrivateIP(host);
   }
+  if (process.env.NODE_ENV === 'test') {
+    return true;
+  }
   try {
     const addrs = await dns.lookup(host, { all: true });
     return addrs.length > 0 && addrs.every(a => !isPrivateIP(a.address));
