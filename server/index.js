@@ -8,7 +8,7 @@ const db = require('./database');
 const {
   hasUsers, setupAdmin, createUser, loginUser, changePassword,
   requireAuth, requireAdmin, destroySession,
-  listUsers, setUserActive, resetUserPassword
+  listUsers, setUserActive, resetUserPassword, deleteUser
 } = require('./auth');
 const { logAudit, getAuditLogs } = require('./audit');
 const { getSetting, setSetting, getAllSettings, isSetupCompleted } = require('./settings');
@@ -291,6 +291,21 @@ app.post('/api/admin/users/:id/reset-password', requireAuth, requireAdmin, authL
     console.error('Reset password error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+app.delete('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+
+  const target = db.prepare('SELECT id, username, is_admin FROM users WHERE id=?').get(req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.is_admin) return res.status(400).json({ error: 'Cannot delete admin users' });
+
+  const result = deleteUser(req.params.id);
+  if (result.error) return res.status(400).json({ error: result.error });
+
+  logAudit(req.user, 'delete', 'user', req.params.id, `Deleted user "${target.username}"`, getClientIP(req));
+  res.json({ success: true });
 });
 
 // === Settings API (admin) ===

@@ -3598,9 +3598,10 @@ async function loadUsersPanel() {
             ${u.must_change_password ? ' <span class="badge badge-amber">Temp password</span>' : ''}</div>
           <div class="settings-item-desc">Created ${formatDate(u.created_at)}</div>
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" type="button" data-reset-pw="${u.id}" data-username="${esc(u.username)}">Reset</button>
-          ${u.id !== state.user.id ? `<button class="btn ${u.is_active ? 'btn-danger' : 'btn-primary'} btn-sm" type="button" data-toggle-user="${u.id}" data-active="${!u.is_active}">${u.is_active ? 'Disable' : 'Enable'}</button>` : ''}
+          ${u.id !== state.user.id ? `<button class="btn btn-secondary btn-sm" type="button" data-toggle-user="${u.id}" data-active="${!u.is_active}">${u.is_active ? 'Disable' : 'Enable'}</button>` : ''}
+          ${u.id !== state.user.id && !u.is_admin ? `<button class="btn btn-danger btn-sm" type="button" data-delete-user="${u.id}" data-username="${esc(u.username)}">Delete</button>` : ''}
         </div>
       </div>`).join('');
 
@@ -3613,7 +3614,22 @@ async function loadUsersPanel() {
         if (!confirm(`Are you sure you want to ${active ? 'enable' : 'disable'} this user?`)) return;
         await API.setUserActive(btn.dataset.toggleUser, active);
         toast(`User ${active ? 'enabled' : 'disabled'}`);
-        renderPage();
+        loadUsersPanel();
+        loadAuditPanel();
+      });
+    });
+    el.querySelectorAll('[data-delete-user]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const username = btn.dataset.username;
+        if (!confirm(`Are you sure you want to permanently delete user "${username}"? This cannot be undone.`)) return;
+        try {
+          await API.deleteUser(btn.dataset.deleteUser);
+          toast(`User "${username}" deleted`);
+          loadUsersPanel();
+          loadAuditPanel();
+        } catch (err) {
+          toast(err.message || 'Failed to delete user', 'error');
+        }
       });
     });
   } catch { /* ignore */ }

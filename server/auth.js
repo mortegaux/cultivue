@@ -249,9 +249,28 @@ async function resetUserPassword(userId, newPassword) {
   return { success: true };
 }
 
+function deleteUser(userId) {
+  const user = db.prepare('SELECT id, username, is_admin FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    return { error: 'User not found' };
+  }
+  if (user.is_admin) {
+    return { error: 'Cannot delete admin users' };
+  }
+
+  const deleteTx = db.transaction(() => {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM audit_log WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  });
+
+  deleteTx();
+  return { success: true, user };
+}
+
 module.exports = {
   hasUsers, setupAdmin, createUser, loginUser, changePassword,
   requireAuth, requireAdmin, destroySession,
-  listUsers, setUserActive, resetUserPassword,
+  listUsers, setUserActive, resetUserPassword, deleteUser,
   validatePasswordStrength
 };

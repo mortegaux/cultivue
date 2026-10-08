@@ -46,6 +46,7 @@ const API = {
   createUser(data) { return this.request('POST', '/api/admin/users', data); },
   setUserActive(id, is_active) { return this.request('PATCH', `/api/admin/users/${id}/active`, { is_active }); },
   resetUserPassword(id, password) { return this.request('POST', `/api/admin/users/${id}/reset-password`, { password }); },
+  deleteUser(id) { return this.request('DELETE', `/api/admin/users/${id}`); },
 
   // Settings
   getSettings() { return this.request('GET', '/api/settings'); },
