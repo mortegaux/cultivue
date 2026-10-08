@@ -8,6 +8,7 @@ A garden management web app supporting hydroponic, soil, container, and aquaponi
 - **Dynamic metrics** — each garden type has relevant metrics (pH, PPM, soil moisture, fish tank parameters, etc.)
 - **Task management** with priorities, recurring tasks, and cross-garden views
 - **Plant tracking** with growth stages and harvest recording — plus a `houseplant` type with its own lifecycle (acquired → acclimating → established → thriving) for plants you buy, not sow
+- **Planting calendar** — USDA hardiness zone schedules, indoor/outdoor sowing, transplanting, and harvest windows with one-click dynamic plant creation directly from calendar entry lines
 - **Device & sensor integration** — register devices, generate API keys, ingest sensor readings
 - **Webhook system** — fire events on sensor readings, alerts, task due dates, and harvests with HMAC signing
 - **Dashboard** with health indicators, upcoming tasks, and recent activity
@@ -26,7 +27,7 @@ A garden management web app supporting hydroponic, soil, container, and aquaponi
 docker compose up -d
 ```
 
-Access at `http://localhost:8777`. The first-time setup wizard will guide you through creating an admin account and configuring the app.
+Access at `http://localhost:8778`. The first-time setup wizard will guide you through creating an admin account and configuring the app.
 
 ### Manual
 

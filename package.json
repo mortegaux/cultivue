@@ -5,8 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "test": "mocha tests/auth.test.js tests/api.test.js tests/migrations.test.js --timeout 10000 --exit",
-    "test:coverage": "c8 --reporter=text --reporter=html mocha tests/auth.test.js tests/api.test.js tests/migrations.test.js --timeout 10000 --exit"
+    "test": "mocha tests/auth.test.js tests/api.test.js tests/migrations.test.js tests/calendar-plant.test.js --timeout 10000 --exit",
+    "test:coverage": "c8 --reporter=text --reporter=html mocha tests/auth.test.js tests/api.test.js tests/migrations.test.js tests/calendar-plant.test.js --timeout 10000 --exit"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

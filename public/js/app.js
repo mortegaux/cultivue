@@ -500,6 +500,7 @@ const CATEGORY_ICONS = { hydroponic: 'water_drop', soil: 'psychiatry', container
 const CATEGORY_COLORS = { hydroponic: 'blue', soil: 'green', container: 'amber', aquaponics: 'purple' };
 
 function renderPage() {
+  const currentScroll = window.scrollY;
   const main = document.getElementById('main-content');
   switch (state.currentPage) {
     case 'dashboard': renderDashboard(main); break;
@@ -517,6 +518,9 @@ function renderPage() {
       else { state.currentPage = 'dashboard'; renderDashboard(main); }
       break;
     }
+  }
+  if (state.currentPage === 'calendar' && currentScroll > 0) {
+    requestAnimationFrame(() => window.scrollTo(0, currentScroll));
   }
 }
 
@@ -2288,21 +2292,38 @@ function applyPlantTypeFields(plantType) {
   if (yieldField) yieldField.hidden = isHouseplant;
 }
 
-function showAddPlantModal(gardenId) {
+function showAddPlantModal(gardenId, initialData = {}) {
+  if (!gardenId && !state.gardens.length) {
+    toast('Create a garden first before adding plants', 'error');
+    showCreateGardenModal();
+    return;
+  }
   const showGardenPicker = !gardenId && state.gardens.length > 0;
-  showModal(`<h2 id="modalTitle">Add New Plant</h2><form id="plantForm">
-    ${showGardenPicker ? `<div class="form-group"><label for="pf-garden">Garden <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-garden" name="garden_id" required aria-required="true">${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>` : ''}
-    <div class="form-row"><div class="form-group" style="flex:1"><label for="pf-name">Plant Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-name" name="name" placeholder="e.g., Cherry Tomato" required aria-required="true"></div>
-      <div class="form-group" style="max-width:100px"><label for="pf-qty">Quantity</label><input class="form-input" id="pf-qty" name="quantity" type="number" min="1" max="100" value="1"></div></div>
-    <div class="form-hint" id="qtyHint" hidden style="margin-top:-12px;margin-bottom:12px">Plants will be named "Name #1", "Name #2", etc.</div>
-    <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-type" name="plant_type" required aria-required="true">${PLANT_TYPES.map(t => `<option value="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
-      <div class="form-group"><label for="pf-species">Species <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-species" name="species" placeholder="e.g., Cherry Tomato" required aria-required="true"></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${todayLocal()}"></div>
-      <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></div>
-    ${state.seeds.length ? `<div class="form-group" id="pf-seed-row"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}">${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
-    <div class="form-row" id="pf-hydro-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0"></div>
-      <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" placeholder="800"></div></div>
-    <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2" placeholder="Any notes..."></textarea></div>
+  const defaultGardenId = gardenId || initialData.garden_id || state.selectedGardenId || (state.gardens[0]?.id);
+  const nameVal = initialData.name || '';
+  const qtyVal = initialData.quantity || 1;
+  const plantTypeVal = initialData.plant_type || 'vegetables';
+  const speciesVal = initialData.species || initialData.name || '';
+  const seededDateVal = initialData.seeded_date || todayLocal();
+  const stageVal = initialData.current_stage || (plantTypeVal === 'houseplant' ? 'acquired' : 'seed');
+  const seedIdVal = initialData.seed_id || '';
+  const initialPhVal = initialData.initial_ph != null ? initialData.initial_ph : '';
+  const initialPpmVal = initialData.initial_ppm != null ? initialData.initial_ppm : '';
+  const notesVal = initialData.notes || '';
+
+  showModal(`<h2 id="modalTitle">${initialData.name ? `Add Plant: ${esc(initialData.name)}` : 'Add New Plant'}</h2><form id="plantForm">
+    ${showGardenPicker ? `<div class="form-group"><label for="pf-garden">Garden <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-garden" name="garden_id" required aria-required="true">${state.gardens.map(g => `<option value="${g.id}" ${g.id === defaultGardenId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></div>` : ''}
+    <div class="form-row"><div class="form-group" style="flex:1"><label for="pf-name">Plant Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-name" name="name" placeholder="e.g., Cherry Tomato" value="${esc(nameVal)}" required aria-required="true"></div>
+      <div class="form-group" style="max-width:100px"><label for="pf-qty">Quantity</label><input class="form-input" id="pf-qty" name="quantity" type="number" min="1" max="100" value="${qtyVal}"></div></div>
+    <div class="form-hint" id="qtyHint" ${qtyVal <= 1 ? 'hidden' : ''} style="margin-top:-12px;margin-bottom:12px">Plants will be named "Name #1", "Name #2", etc.</div>
+    <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-type" name="plant_type" required aria-required="true">${PLANT_TYPES.map(t => `<option value="${t}" ${t === plantTypeVal ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
+      <div class="form-group"><label for="pf-species">Species <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-species" name="species" placeholder="e.g., Cherry Tomato" value="${esc(speciesVal)}" required aria-required="true"></div></div>
+    <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${seededDateVal}"></div>
+      <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plantTypeVal).map(s => `<option value="${s}" ${s === stageVal ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></div>
+    ${state.seeds.length ? `<div class="form-group" id="pf-seed-row"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}" ${s.id === seedIdVal ? 'selected' : ''}>${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
+    <div class="form-row" id="pf-hydro-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0" value="${initialPhVal}"></div>
+      <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" placeholder="800" value="${initialPpmVal}"></div></div>
+    <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2" placeholder="Any notes...">${esc(notesVal)}</textarea></div>
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelPlant">Cancel</button><button type="submit" class="btn btn-primary">Add Plant</button></div></form>`);
   document.getElementById('cancelPlant').addEventListener('click', closeModal);
   document.getElementById('pf-qty').addEventListener('input', e => {
@@ -2310,6 +2331,12 @@ function showAddPlantModal(gardenId) {
   });
   document.getElementById('pf-type').addEventListener('change', e => applyPlantTypeFields(e.target.value));
   applyPlantTypeFields(document.getElementById('pf-type').value);
+  if (stageVal) {
+    const sEl = document.getElementById('pf-stage');
+    if (sEl && Array.from(sEl.options).some(o => o.value === stageVal)) {
+      sEl.value = stageVal;
+    }
+  }
   document.getElementById('plantForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -2330,7 +2357,7 @@ function showAddPlantModal(gardenId) {
     }
     await Promise.all(promises);
     closeModal();
-    toast(qty > 1 ? `${qty} plants added` : 'Plant added');
+    toast(qty > 1 ? `${qty} plants added` : `Plant "${baseName}" added`);
     renderPage();
   });
 }
@@ -2677,6 +2704,83 @@ function getSeedName(seedId) {
   return seed ? seed.name : null;
 }
 
+// Helper: Build pre-populated plant data from a calendar crop and month
+function buildInitialPlantData(crop, month) {
+  if (!crop) return {};
+  const currentMonth = new Date().getMonth() + 1;
+  const m = month || currentMonth;
+
+  const name = crop.name || '';
+  const species = crop.name || '';
+
+  // Map category to plant_type: 'vegetable' -> 'vegetables', 'herb' -> 'herbs', etc.
+  const cat = (crop.category || '').toLowerCase();
+  let plant_type = 'vegetables';
+  if (cat === 'vegetable') plant_type = 'vegetables';
+  else if (cat === 'herb') plant_type = 'herbs';
+  else if (cat === 'fruit') plant_type = 'fruits';
+  else if (cat === 'flower') plant_type = 'flowers';
+  else if (cat === 'cannabis') plant_type = 'cannabis';
+  else if (cat === 'houseplant') plant_type = 'houseplant';
+  else plant_type = 'other';
+
+  // Growth Stage: determine by activity in clicked month, or current month
+  let current_stage = 'seed';
+  if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) {
+    current_stage = 'seedling';
+  } else if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) {
+    current_stage = 'harvest';
+  } else if ((crop.sow_indoor_start && m >= crop.sow_indoor_start && m <= crop.sow_indoor_end) ||
+             (crop.sow_outdoor_start && m >= crop.sow_outdoor_start && m <= crop.sow_outdoor_end)) {
+    current_stage = 'seed';
+  } else if (crop.transplant_start && currentMonth >= crop.transplant_start && currentMonth <= crop.transplant_end) {
+    current_stage = 'seedling';
+  } else if (crop.harvest_start && currentMonth >= crop.harvest_start && currentMonth <= crop.harvest_end) {
+    current_stage = 'harvest';
+  }
+
+  // Seeded Date: today if current month, else 1st of clicked month in current year
+  let seeded_date = todayLocal();
+  if (month && month !== currentMonth) {
+    const year = new Date().getFullYear();
+    seeded_date = `${year}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  // Notes: include crop growing notes and days to maturity
+  let notes = crop.notes ? crop.notes.trim() : '';
+  if (crop.days_to_maturity_min) {
+    const maturity = `Days to maturity: ${crop.days_to_maturity_min}${crop.days_to_maturity_max ? '–' + crop.days_to_maturity_max : ''} days.`;
+    notes = notes ? `${notes}\n${maturity}` : maturity;
+  }
+
+  // Seed matching from user's inventory
+  let seed_id = '';
+  if (state.seeds && state.seeds.length) {
+    const cName = name.toLowerCase().trim();
+    let found = state.seeds.find(s => s.name && s.name.toLowerCase().trim() === cName);
+    if (!found) found = state.seeds.find(s => s.variety && s.variety.toLowerCase().trim() === cName);
+    if (!found) {
+      found = state.seeds.find(s => {
+        const sName = (s.name || '').toLowerCase();
+        const vName = (s.variety || '').toLowerCase();
+        return sName.includes(cName) || cName.includes(sName) || vName.includes(cName) || cName.includes(vName);
+      });
+    }
+    if (found) seed_id = found.id;
+  }
+
+  return {
+    name,
+    species,
+    plant_type,
+    current_stage,
+    seeded_date,
+    notes,
+    seed_id,
+    garden_id: state.selectedGardenId || (state.gardens[0]?.id)
+  };
+}
+
 // ============================================
 // === PLANTING CALENDAR
 // ============================================
@@ -2694,7 +2798,8 @@ async function renderCalendarPage(main) {
   let data = { crops: [], zone: initialZone, zone_group: 'temperate' };
   try { data = await API.getPlantingCalendar(initialZone); } catch { /* ok */ }
 
-  let activeCategory = 'all';
+  const savedCategory = sessionStorage.getItem('calendarCategory') || 'all';
+  let activeCategory = savedCategory;
 
   function zoneOptions() {
     let html = '';
@@ -2712,7 +2817,7 @@ async function renderCalendarPage(main) {
     }
 
     let html = '<div class="calendar-grid"><div class="calendar-row calendar-header-row">';
-    html += '<div class="calendar-crop-name">Crop</div>';
+    html += '<div class="calendar-crop-cell calendar-header-crop">Crop</div>';
     for (let m = 1; m <= 12; m++) {
       html += `<div class="calendar-header-cell${m === currentMonth ? ' calendar-current-month' : ''}">${monthNames[m - 1]}</div>`;
     }
@@ -2720,16 +2825,35 @@ async function renderCalendarPage(main) {
 
     for (const crop of filtered) {
       html += '<div class="calendar-row">';
-      html += `<button class="calendar-crop-name" type="button" data-crop-name="${esc(crop.name)}" data-crop-id="${esc(crop.id)}" title="${esc(crop.notes || '')}">${esc(crop.name)}</button>`;
+      html += `<div class="calendar-crop-cell">
+        <button class="calendar-crop-name" type="button" data-crop-name="${esc(crop.name)}" data-crop-id="${esc(crop.id)}" title="View details: ${esc(crop.notes || crop.name)}">${esc(crop.name)}</button>
+        <button class="calendar-quick-plant" type="button" data-action="plant-crop" data-crop-id="${esc(crop.id)}" title="Plant ${esc(crop.name)}" aria-label="Plant ${esc(crop.name)}"><span class="material-symbols-outlined" aria-hidden="true">add</span></button>
+      </div>`;
       for (let m = 1; m <= 12; m++) {
         const classes = ['calendar-cell'];
         if (m === currentMonth) classes.push('calendar-current-month');
         const bars = [];
-        if (crop.sow_indoor_start && m >= crop.sow_indoor_start && m <= crop.sow_indoor_end) bars.push('bar-sow-indoor');
-        if (crop.sow_outdoor_start && m >= crop.sow_outdoor_start && m <= crop.sow_outdoor_end) bars.push('bar-sow-outdoor');
-        if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) bars.push('bar-transplant');
-        if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) bars.push('bar-harvest');
-        html += `<div class="${classes.join(' ')}">${bars.map(b => `<div class="calendar-bar ${b}"></div>`).join('')}</div>`;
+        const activities = [];
+        if (crop.sow_indoor_start && m >= crop.sow_indoor_start && m <= crop.sow_indoor_end) {
+          bars.push('bar-sow-indoor');
+          activities.push('Sow Indoor');
+        }
+        if (crop.sow_outdoor_start && m >= crop.sow_outdoor_start && m <= crop.sow_outdoor_end) {
+          bars.push('bar-sow-outdoor');
+          activities.push('Sow Outdoor');
+        }
+        if (crop.transplant_start && m >= crop.transplant_start && m <= crop.transplant_end) {
+          bars.push('bar-transplant');
+          activities.push('Transplant');
+        }
+        if (crop.harvest_start && m >= crop.harvest_start && m <= crop.harvest_end) {
+          bars.push('bar-harvest');
+          activities.push('Harvest');
+        }
+        const activityDesc = activities.length ? ` (${activities.join(', ')})` : '';
+        const titleText = `Plant ${crop.name} — ${monthFull[m - 1]}${activityDesc}`;
+
+        html += `<button type="button" class="${classes.join(' ')}" data-action="plant-cell" data-crop-id="${esc(crop.id)}" data-month="${m}" title="${esc(titleText)}" aria-label="${esc(titleText)}">${bars.map(b => `<div class="calendar-bar ${b}"></div>`).join('')}</button>`;
       }
       html += '</div>';
     }
@@ -2738,8 +2862,33 @@ async function renderCalendarPage(main) {
   }
 
   function bindGridEvents() {
-    document.querySelectorAll('#calendarContainer [data-crop-name]').forEach(btn => {
-      btn.addEventListener('click', () => showCropDetail(btn.dataset.cropName));
+    document.querySelectorAll('#calendarContainer button.calendar-crop-name').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showCropDetail(btn.dataset.cropName);
+      });
+    });
+
+    document.querySelectorAll('#calendarContainer button[data-action="plant-cell"]').forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const crop = data.crops.find(c => c.id === cell.dataset.cropId);
+        if (crop) {
+          const initialData = buildInitialPlantData(crop, parseInt(cell.dataset.month, 10));
+          showAddPlantModal(null, initialData);
+        }
+      });
+    });
+
+    document.querySelectorAll('#calendarContainer button[data-action="plant-crop"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const crop = data.crops.find(c => c.id === btn.dataset.cropId);
+        if (crop) {
+          const initialData = buildInitialPlantData(crop, currentMonth);
+          showAddPlantModal(null, initialData);
+        }
+      });
     });
   }
 
@@ -2794,6 +2943,7 @@ async function renderCalendarPage(main) {
     main.querySelectorAll('.calendar-filters .tab').forEach(btn => {
       btn.addEventListener('click', () => {
         activeCategory = btn.dataset.category;
+        sessionStorage.setItem('calendarCategory', activeCategory);
         main.querySelectorAll('.calendar-filters .tab').forEach(t => t.classList.toggle('active', t === btn));
         document.getElementById('calendarContainer').innerHTML = renderGrid();
         bindGridEvents();
@@ -2852,11 +3002,25 @@ async function showCropDetail(cropName) {
         `).join('')}
       </div>
       <div class="drawer-actions">
-        <button class="btn btn-danger btn-sm" type="button" id="deleteCropBtn">Delete All Zones</button>
+        <button class="btn btn-primary" type="button" id="plantCropDrawerBtn"><span class="material-symbols-outlined" style="font-size:1.1rem;vertical-align:middle;margin-right:4px" aria-hidden="true">eco</span>Plant this Crop</button>
         <button class="btn btn-secondary" type="button" id="editCropBtn">Edit</button>
+        <button class="btn btn-danger btn-sm" type="button" id="deleteCropBtn">Delete All Zones</button>
       </div>`;
 
     document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawer);
+    document.getElementById('plantCropDrawerBtn').addEventListener('click', () => {
+      const currentZone = parseInt(document.getElementById('zoneSelect')?.value, 10) || 7;
+      const zg = currentZone <= 4 ? 'cold' : currentZone <= 7 ? 'temperate' : 'warm';
+      const zoneData = crop.zones[zg] || Object.values(crop.zones)[0] || {};
+      const combinedCrop = {
+        name: crop.name,
+        category: crop.category,
+        ...zoneData
+      };
+      const initialData = buildInitialPlantData(combinedCrop, new Date().getMonth() + 1);
+      closeDrawer();
+      showAddPlantModal(null, initialData);
+    });
     document.getElementById('editCropBtn').addEventListener('click', () => {
       // Get the current zone_group from the page context
       let settings = {};

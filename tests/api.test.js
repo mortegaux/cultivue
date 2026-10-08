@@ -307,3 +307,47 @@ describe('CSV Export', function () {
     assert.ok(res.headers['content-type'].includes('text/csv'));
   });
 });
+
+describe('Planting Calendar API', function () {
+  let cookie, gardenId;
+  before(async function () {
+    cookie = await getAdminCookie();
+    const gardens = await request.get('/api/gardens').set('Cookie', cookie);
+    gardenId = gardens.body[0]?.id;
+  });
+
+  it('GET /api/planting-calendar — retrieve calendar crops', async function () {
+    const res = await request.get('/api/planting-calendar?zone=6').set('Cookie', cookie);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.zone, 6);
+    assert.strictEqual(res.body.zone_group, 'temperate');
+    assert.ok(Array.isArray(res.body.crops));
+    assert.ok(res.body.crops.length > 0);
+    const tomato = res.body.crops.find(c => c.name === 'Tomato');
+    assert.ok(tomato);
+    assert.strictEqual(tomato.category, 'vegetable');
+  });
+
+  it('POST /api/gardens/:id/plants — create plant from crop pre-population data', async function () {
+    if (!gardenId) return;
+    const res = await request.post(`/api/gardens/${gardenId}/plants`)
+      .set('Cookie', cookie)
+      .send({
+        name: 'Tomato',
+        species: 'Tomato',
+        plant_type: 'vegetables',
+        seeded_date: '2026-03-01',
+        current_stage: 'seed',
+        notes: 'Start indoors 6-8 weeks before last frost.\nDays to maturity: 60–85 days.'
+      });
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.name, 'Tomato');
+    assert.strictEqual(res.body.species, 'Tomato');
+    assert.strictEqual(res.body.plant_type, 'vegetables');
+    assert.strictEqual(res.body.current_stage, 'seed');
+    assert.ok(res.body.notes.includes('Days to maturity'));
+
+    // Clean up created plant
+    await request.delete(`/api/plants/${res.body.id}`).set('Cookie', cookie);
+  });
+});
