@@ -4,15 +4,15 @@ A garden management web app supporting hydroponic, soil, container, and aquaponi
 
 ## Features
 
-- **Multi-garden management** with 15+ garden subtypes across 4 categories
+- **Multi-garden management** with 15+ garden subtypes across 4 categories, featuring collapsible accordion panels and bulk category controls
 - **Dynamic metrics** — each garden type has relevant metrics (pH, PPM, soil moisture, fish tank parameters, etc.)
-- **Task management** with priorities, recurring tasks, and cross-garden views
+- **Task management** with priorities, advanced recurring schedules (intervals, days of the week, multiple times per day), automated termination conditions (by date, run count, or garden state like empty or all harvested), disabled schedule lifecycle management, and cross-garden views
 - **Plant tracking** with growth stages and harvest recording — plus a `houseplant` type with its own lifecycle (acquired → acclimating → established → thriving) for plants you buy, not sow
 - **Planting calendar** — USDA hardiness zone schedules, indoor/outdoor sowing, transplanting, and harvest windows with one-click dynamic plant creation directly from calendar entry lines
 - **Device & sensor integration** — register devices, generate API keys, ingest sensor readings
 - **Webhook system** — fire events on sensor readings, alerts, task due dates, and harvests with HMAC signing
 - **Dashboard** with health indicators, upcoming tasks, and recent activity
-- **Multi-user auth** with admin-managed accounts, account lockout, and audit logging
+- **Multi-user auth** with admin-managed accounts, user deletion, account lockout, and audit logging
 - **OOBE wizard** for first-time setup
 - **WCAG 2.1 AA accessibility** — keyboard navigation, screen reader support, focus management
 - **Dark mode** with accessible contrast ratios

@@ -8,6 +8,10 @@ const ALL_STAGES = [...GROWTH_STAGES, ...HOUSEPLANT_STAGES];
 const PRIORITIES = ['low', 'medium', 'high'];
 const QUANTITY_UNITS = ['packets', 'seeds', 'grams'];
 const FAILURE_STAGES = ['seed', 'germination', 'seedling'];
+const RECURRENCE_TYPES = ['interval', 'days_of_week'];
+const END_TYPES = ['never', 'date', 'occurrences', 'condition'];
+const END_CONDITIONS = ['all_harvested', 'all_transplanted', 'garden_empty'];
+const DAYS_OF_WEEK = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 // Sanitize string: trim, limit length, strip control chars
 function str(val, maxLen = 500) {
@@ -93,7 +97,16 @@ function enumArray(val, allowed) {
   return valid.length > 0 ? valid : null;
 }
 
+// Validate time string (HH:MM 24-hour format)
+function timeOnly(val) {
+  if (!val || typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(trimmed)) return trimmed;
+  return null;
+}
+
 module.exports = {
   SYSTEM_TYPES, PLANT_TYPES, GROWTH_STAGES, HOUSEPLANT_STAGES, ALL_STAGES, PRIORITIES, QUANTITY_UNITS, FAILURE_STAGES,
-  str, reqStr, num, reqNum, int, isoDate, dateOnly, enumVal, isUUID, enumArray
+  RECURRENCE_TYPES, END_TYPES, END_CONDITIONS, DAYS_OF_WEEK,
+  str, reqStr, num, reqNum, int, isoDate, dateOnly, timeOnly, enumVal, isUUID, enumArray
 };

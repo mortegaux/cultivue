@@ -394,6 +394,89 @@ input, select, textarea { font: inherit; }
 
 .overdue { color: var(--error); font-weight: 600; }
 
+/* === Task Recurrence & Schedule Styling === */
+.task-item.disabled {
+  opacity: 0.85;
+  border-style: dashed;
+}
+.recurrence-box {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.recurrence-pattern-radios {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.day-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.day-pill {
+  width: 40px;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.day-pill:hover {
+  border-color: var(--primary);
+}
+.day-pill.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.time-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.time-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.time-slot-row .form-input {
+  max-width: 140px;
+}
+.task-disabled-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--warning-light, rgba(245, 158, 11, 0.12));
+  border: 1px solid var(--warning, #f59e0b);
+  border-radius: 8px;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.task-disabled-alert .material-symbols-outlined {
+  color: var(--warning, #f59e0b);
+  font-size: 20px;
+  margin-top: 2px;
+}
+.form-help {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
 /* === Compact task list (dashboard) === */
 .task-list-compact { padding: 0; }
 .task-item-compact {

@@ -13,6 +13,7 @@ const {
 const { logAudit, getAuditLogs } = require('./audit');
 const { getSetting, setSetting, getAllSettings, isSetupCompleted } = require('./settings');
 const V = require('./validate');
+const recurrence = require('./recurrence');
 const { v4: uuidv4 } = require('uuid');
 const {
   listDevices, getDevice, createDevice, updateDevice, deleteDevice,
@@ -702,12 +703,46 @@ app.delete('/api/logs/:id', (req, res) => {
 });
 
 // === Tasks API ===
+function formatTask(t) {
+  if (!t) return null;
+  return {
+    ...t,
+    is_completed: !!t.is_completed,
+    is_recurring: !!t.is_recurring,
+    is_disabled: !!t.is_disabled,
+    due_time: t.due_time || null,
+    recurrence_type: t.recurrence_type || 'interval',
+    days_of_week: recurrence.parseDaysOfWeek(t.days_of_week),
+    times_of_day: recurrence.parseTimesOfDay(t.times_of_day),
+    occurrence_count: t.occurrence_count || 0,
+    end_type: t.end_type || 'never',
+    end_date: t.end_date || null,
+    end_occurrences: t.end_occurrences || null,
+    end_condition: t.end_condition || null,
+    disabled_reason: t.disabled_reason || null
+  };
+}
+
+function evaluateConditionTasks(tasks) {
+  for (const t of tasks) {
+    if (t.is_recurring && !t.is_disabled && t.end_type === 'condition' && t.end_condition && t.garden_id) {
+      const reason = recurrence.checkTerminationCondition(db, t);
+      if (reason) {
+        db.prepare('UPDATE tasks SET is_disabled = 1, disabled_reason = ? WHERE id = ?').run(reason, t.id);
+        t.is_disabled = 1;
+        t.disabled_reason = reason;
+      }
+    }
+  }
+}
+
 app.get('/api/gardens/:gardenId/tasks', (req, res) => {
   if (!V.isUUID(req.params.gardenId)) return res.status(400).json({ error: 'Invalid ID' });
 
-  const tasks = db.prepare('SELECT * FROM tasks WHERE garden_id=? ORDER BY due_date ASC')
+  const tasks = db.prepare('SELECT * FROM tasks WHERE garden_id=? ORDER BY due_date ASC, due_time ASC')
     .all(req.params.gardenId);
-  res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
+  evaluateConditionTasks(tasks);
+  res.json(tasks.map(formatTask));
 });
 
 app.get('/api/tasks', requireAuth, (req, res) => {
@@ -717,15 +752,22 @@ app.get('/api/tasks', requireAuth, (req, res) => {
   const conditions = [];
   const params = [];
 
-  if (status === 'active') { conditions.push('t.is_completed = 0'); }
-  else if (status === 'completed') { conditions.push('t.is_completed = 1'); }
+  if (status === 'active') {
+    conditions.push('t.is_completed = 0 AND t.is_disabled = 0');
+  } else if (status === 'disabled') {
+    conditions.push('t.is_disabled = 1');
+  } else if (status === 'completed') {
+    conditions.push('t.is_completed = 1');
+  }
+
   if (priority) { conditions.push('t.priority = ?'); params.push(priority); }
 
   if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ' ORDER BY t.due_date ASC';
+  sql += ' ORDER BY t.due_date ASC, t.due_time ASC';
 
   const tasks = db.prepare(sql).all(...params);
-  res.json(tasks.map(t => ({ ...t, is_completed: !!t.is_completed, is_recurring: !!t.is_recurring })));
+  evaluateConditionTasks(tasks);
+  res.json(tasks.map(formatTask));
 });
 
 app.post('/api/tasks', requireAuth, (req, res) => {
@@ -734,20 +776,44 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
   const due_date = V.dateOnly(req.body.due_date);
+  const due_time = V.timeOnly(req.body.due_time);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_recurring = req.body.is_recurring ? 1 : 0;
-  const recurring_days = V.int(req.body.recurring_days, 1, 365);
+  const recurring_days = V.int(req.body.recurring_days, 1, 365) || (is_recurring ? 7 : null);
+  const recurrence_type = V.enumVal(req.body.recurrence_type, V.RECURRENCE_TYPES) || 'interval';
+  const days_of_week = recurrence.parseDaysOfWeek(req.body.days_of_week);
+  const times_of_day = recurrence.parseTimesOfDay(req.body.times_of_day);
+  const end_type = V.enumVal(req.body.end_type, V.END_TYPES) || 'never';
+  const end_date = V.dateOnly(req.body.end_date);
+  const end_occurrences = V.int(req.body.end_occurrences, 1, 1000);
+  const end_condition = V.enumVal(req.body.end_condition, V.END_CONDITIONS);
+  const is_disabled = req.body.is_disabled ? 1 : 0;
+  const disabled_reason = V.str(req.body.disabled_reason, 200);
 
   if (!title || !due_date) {
     return res.status(400).json({ error: 'Title and due date are required' });
   }
 
+  const effectiveDueTime = due_time || (times_of_day.length ? times_of_day[0] : null);
   const id = uuidv4();
-  db.prepare('INSERT INTO tasks (id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days);
+
+  db.prepare(`
+    INSERT INTO tasks (
+      id, garden_id, plant_id, title, description, due_date, due_time, priority,
+      is_recurring, recurring_days, recurrence_type, days_of_week, times_of_day,
+      end_type, end_date, end_occurrences, occurrence_count, end_condition, is_disabled, disabled_reason
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `).run(
+    id, garden_id, plant_id, title, description, due_date, effectiveDueTime, priority,
+    is_recurring, recurring_days, recurrence_type,
+    days_of_week.length ? JSON.stringify(days_of_week) : null,
+    times_of_day.length ? JSON.stringify(times_of_day) : null,
+    end_type, end_date, end_occurrences, end_condition, is_disabled, disabled_reason
+  );
 
   logAudit(req.user, 'create', 'task', id, `Created task "${title}"`, getClientIP(req));
-  res.status(201).json({ id, garden_id, plant_id, title, description, due_date, priority, is_completed: false, is_recurring: !!is_recurring, recurring_days });
+  const created = db.prepare('SELECT t.*, g.name as garden_name, p.name as plant_name FROM tasks t LEFT JOIN gardens g ON t.garden_id = g.id LEFT JOIN plants p ON t.plant_id = p.id WHERE t.id = ?').get(id);
+  res.status(201).json(formatTask(created));
 });
 
 app.post('/api/gardens/:gardenId/tasks', (req, res) => {
@@ -756,43 +822,99 @@ app.post('/api/gardens/:gardenId/tasks', (req, res) => {
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
   const due_date = V.dateOnly(req.body.due_date);
+  const due_time = V.timeOnly(req.body.due_time);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_recurring = req.body.is_recurring ? 1 : 0;
-  const recurring_days = V.int(req.body.recurring_days, 1, 365);
+  const recurring_days = V.int(req.body.recurring_days, 1, 365) || (is_recurring ? 7 : null);
+  const recurrence_type = V.enumVal(req.body.recurrence_type, V.RECURRENCE_TYPES) || 'interval';
+  const days_of_week = recurrence.parseDaysOfWeek(req.body.days_of_week);
+  const times_of_day = recurrence.parseTimesOfDay(req.body.times_of_day);
+  const end_type = V.enumVal(req.body.end_type, V.END_TYPES) || 'never';
+  const end_date = V.dateOnly(req.body.end_date);
+  const end_occurrences = V.int(req.body.end_occurrences, 1, 1000);
+  const end_condition = V.enumVal(req.body.end_condition, V.END_CONDITIONS);
+  const is_disabled = req.body.is_disabled ? 1 : 0;
+  const disabled_reason = V.str(req.body.disabled_reason, 200);
 
   if (!title || !due_date) {
     return res.status(400).json({ error: 'Title and due date are required' });
   }
 
+  const effectiveDueTime = due_time || (times_of_day.length ? times_of_day[0] : null);
   const id = uuidv4();
-  db.prepare('INSERT INTO tasks (id, garden_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.gardenId, title, description, due_date, priority, is_recurring, recurring_days);
+
+  db.prepare(`
+    INSERT INTO tasks (
+      id, garden_id, plant_id, title, description, due_date, due_time, priority,
+      is_recurring, recurring_days, recurrence_type, days_of_week, times_of_day,
+      end_type, end_date, end_occurrences, occurrence_count, end_condition, is_disabled, disabled_reason
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `).run(
+    id, req.params.gardenId, null, title, description, due_date, effectiveDueTime, priority,
+    is_recurring, recurring_days, recurrence_type,
+    days_of_week.length ? JSON.stringify(days_of_week) : null,
+    times_of_day.length ? JSON.stringify(times_of_day) : null,
+    end_type, end_date, end_occurrences, end_condition, is_disabled, disabled_reason
+  );
 
   logAudit(req.user, 'create', 'task', id, `Created task "${title}"`, getClientIP(req));
-  res.status(201).json({ id, garden_id: req.params.gardenId, title, description, due_date, priority, is_completed: false, is_recurring: !!is_recurring, recurring_days });
+  const created = db.prepare('SELECT t.*, g.name as garden_name, p.name as plant_name FROM tasks t LEFT JOIN gardens g ON t.garden_id = g.id LEFT JOIN plants p ON t.plant_id = p.id WHERE t.id = ?').get(id);
+  res.status(201).json(formatTask(created));
 });
 
 app.put('/api/tasks/:id', (req, res) => {
   if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
 
+  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Task not found' });
+
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
   const due_date = V.dateOnly(req.body.due_date);
+  const due_time = V.timeOnly(req.body.due_time);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_completed = req.body.is_completed ? 1 : 0;
-  const completed_at = is_completed ? new Date().toISOString() : null;
+  const completed_at = is_completed ? (existing.completed_at || new Date().toISOString()) : null;
   const is_recurring = req.body.is_recurring ? 1 : 0;
-  const recurring_days = V.int(req.body.recurring_days, 1, 365);
+  const recurring_days = V.int(req.body.recurring_days, 1, 365) || (is_recurring ? 7 : null);
+  const recurrence_type = V.enumVal(req.body.recurrence_type, V.RECURRENCE_TYPES) || 'interval';
+  const days_of_week = recurrence.parseDaysOfWeek(req.body.days_of_week);
+  const times_of_day = recurrence.parseTimesOfDay(req.body.times_of_day);
+  const end_type = V.enumVal(req.body.end_type, V.END_TYPES) || 'never';
+  const end_date = V.dateOnly(req.body.end_date);
+  const end_occurrences = V.int(req.body.end_occurrences, 1, 1000);
+  const end_condition = V.enumVal(req.body.end_condition, V.END_CONDITIONS);
+  const is_disabled = req.body.is_disabled ? 1 : 0;
+  const disabled_reason = is_disabled ? (V.str(req.body.disabled_reason, 200) || existing.disabled_reason || 'Manually disabled') : null;
 
   if (!title || !due_date) {
     return res.status(400).json({ error: 'Invalid input' });
   }
 
-  db.prepare('UPDATE tasks SET title=?, description=?, due_date=?, priority=?, is_completed=?, completed_at=?, is_recurring=?, recurring_days=? WHERE id=?')
-    .run(title, description, due_date, priority, is_completed, completed_at, is_recurring, recurring_days, req.params.id);
+  const effectiveDueTime = due_time !== undefined ? due_time : existing.due_time;
+
+  db.prepare(`
+    UPDATE tasks SET
+      title=?, description=?, due_date=?, due_time=?, priority=?,
+      is_completed=?, completed_at=?, is_recurring=?, recurring_days=?,
+      recurrence_type=?, days_of_week=?, times_of_day=?,
+      end_type=?, end_date=?, end_occurrences=?, end_condition=?,
+      is_disabled=?, disabled_reason=?
+    WHERE id=?
+  `).run(
+    title, description, due_date, effectiveDueTime, priority,
+    is_completed, completed_at, is_recurring, recurring_days,
+    recurrence_type,
+    days_of_week.length ? JSON.stringify(days_of_week) : null,
+    times_of_day.length ? JSON.stringify(times_of_day) : null,
+    end_type, end_date, end_occurrences, end_condition,
+    is_disabled, disabled_reason,
+    req.params.id
+  );
 
   logAudit(req.user, 'update', 'task', req.params.id, `Updated task "${title}"`, getClientIP(req));
-  res.json({ success: true });
+  const updated = db.prepare('SELECT t.*, g.name as garden_name, p.name as plant_name FROM tasks t LEFT JOIN gardens g ON t.garden_id = g.id LEFT JOIN plants p ON t.plant_id = p.id WHERE t.id = ?').get(req.params.id);
+  res.json({ success: true, task: formatTask(updated) });
 });
 
 app.patch('/api/tasks/:id/toggle', (req, res) => {
@@ -803,27 +925,73 @@ app.patch('/api/tasks/:id/toggle', (req, res) => {
 
   const newCompleted = task.is_completed ? 0 : 1;
   const completed_at = newCompleted ? new Date().toISOString() : null;
-  db.prepare('UPDATE tasks SET is_completed=?, completed_at=? WHERE id=?')
-    .run(newCompleted, completed_at, req.params.id);
+  const newCount = newCompleted ? ((task.occurrence_count || 0) + 1) : task.occurrence_count;
 
-  if (newCompleted && task.is_recurring && task.recurring_days) {
-    // Date-only arithmetic: keep YYYY-MM-DD (no UTC-midnight shift).
-    const m = String(task.due_date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-    let nextDue;
-    if (m) {
-      const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-      d.setUTCDate(d.getUTCDate() + task.recurring_days);
-      nextDue = d.toISOString().slice(0, 10);
-    } else {
-      nextDue = V.dateOnly(task.due_date);
+  db.prepare('UPDATE tasks SET is_completed=?, completed_at=?, occurrence_count=? WHERE id=?')
+    .run(newCompleted, completed_at, newCount, req.params.id);
+
+  let scheduleEnded = false;
+  let disabledReason = null;
+  let nextSpawned = false;
+
+  if (newCompleted && task.is_recurring && !task.is_disabled) {
+    const next = recurrence.calculateNextOccurrence(task);
+    if (next) {
+      const updatedTaskObj = { ...task, occurrence_count: newCount };
+      const termReason = recurrence.checkTerminationCondition(db, updatedTaskObj, next);
+
+      if (termReason) {
+        scheduleEnded = true;
+        disabledReason = termReason;
+        db.prepare('UPDATE tasks SET is_disabled=1, disabled_reason=? WHERE id=?').run(termReason, task.id);
+      } else {
+        const newId = uuidv4();
+        db.prepare(`
+          INSERT INTO tasks (
+            id, garden_id, plant_id, title, description, due_date, due_time, priority,
+            is_recurring, recurring_days, recurrence_type, days_of_week, times_of_day,
+            end_type, end_date, end_occurrences, occurrence_count, end_condition, is_disabled, disabled_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
+        `).run(
+          newId, task.garden_id, task.plant_id, task.title, task.description,
+          next.due_date, next.due_time, task.priority,
+          task.recurring_days, task.recurrence_type,
+          task.days_of_week, task.times_of_day,
+          task.end_type, task.end_date, task.end_occurrences,
+          newCount, task.end_condition
+        );
+        nextSpawned = true;
+      }
     }
-    const newId = uuidv4();
-    db.prepare('INSERT INTO tasks (id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(newId, task.garden_id, task.plant_id, task.title, task.description, nextDue, task.priority, 1, task.recurring_days);
   }
 
   logAudit(req.user, 'update', 'task', req.params.id, newCompleted ? `Completed task "${task.title}"` : `Reopened task "${task.title}"`, getClientIP(req));
-  res.json({ success: true, is_completed: !!newCompleted });
+  res.json({
+    success: true,
+    is_completed: !!newCompleted,
+    schedule_ended: scheduleEnded,
+    disabled_reason: disabledReason,
+    next_spawned: nextSpawned
+  });
+});
+
+app.patch('/api/tasks/:id/re-enable', requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  db.prepare('UPDATE tasks SET is_disabled = 0, disabled_reason = NULL WHERE id = ?').run(req.params.id);
+  logAudit(req.user, 'update', 'task', req.params.id, `Re-enabled task schedule "${task.title}"`, getClientIP(req));
+  res.json({ success: true });
+});
+
+app.patch('/api/tasks/:id/disable', requireAuth, (req, res) => {
+  if (!V.isUUID(req.params.id)) return res.status(400).json({ error: 'Invalid ID' });
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const reason = V.str(req.body.reason, 200) || 'Manually paused';
+  db.prepare('UPDATE tasks SET is_disabled = 1, disabled_reason = ? WHERE id = ?').run(reason, req.params.id);
+  logAudit(req.user, 'update', 'task', req.params.id, `Disabled task schedule "${task.title}"`, getClientIP(req));
+  res.json({ success: true, disabled_reason: reason });
 });
 
 app.delete('/api/tasks/:id', (req, res) => {

@@ -69,7 +69,9 @@ public/
   fonts/              — Material Symbols Outlined TTF
 server/
   index.js            — Express routes and middleware
+  recurrence.js       — Task recurrence calculation & condition evaluation
   settings.js         — Settings utility
+  migrations/         — Database schema migrations (001–008)
 data/
   cultivue.db         — SQLite database (gitignored, created at runtime)
 docs/
@@ -104,7 +106,7 @@ npm install && npm test
 npm run test:coverage
 ```
 
-All 45 tests pass. (The 34 pre-existing failures were resolved: test suite execution order was set to initialize auth first, rate limiters skip during test runs, and webhook URL validator avoids requiring live external DNS in tests.)
+All 87 tests pass. (The 34 pre-existing failures were resolved: test suite execution order was set to initialize auth first, rate limiters skip during test runs, and webhook URL validator avoids requiring live external DNS in tests.)
 
 ## Permission Model
 
@@ -126,16 +128,24 @@ Two roles: **admin** and **regular user** (binary `is_admin` flag on users table
 
 ## Recent Changes (Latest First)
 
-1. **Plant stage capitalization & case-insensitive enum validation** — Standardized plant stage and status formatting across all plants (including houseplants and 'Thriving'). Added `formatStage()` and `STAGE_LABELS` in frontend, ensuring growth stages and statuses display capitalized (Title Case) across plant lists, detail drawers, dashboard attention items, failure records, and dropdown options. Enhanced `server/validate.js` `enumVal()` to be case-insensitive, accepting capitalized stage inputs while saving canonical values. Added `.badge { text-transform: capitalize; }` and bumped asset version hashes.
-2. **Admin non-admin user deletion (`DELETE /api/admin/users/:id`)** — Admins can now permanently remove non-admin accounts from the Users panel in Settings. The backend cascades sessions and user audit records within an atomic transaction while preventing self-deletion and deletion of admin accounts. Non-admins receive 403.
-3. **Dynamic plant creation from planting calendar lines** — Clicking any month cell or schedule bar on a calendar entry line, the quick-add button in the crop column, or "Plant this Crop" in the crop detail drawer opens an in-page dynamic modal pre-populated with crop details (name, species, plant type from category, growth stage tailored to the clicked month window [seed / seedling / harvest], seeded date, growing notes & maturity days, inventory seed match, and active garden). Closing or submitting keeps the user on the calendar page with scroll position and active filter preserved.
-4. **Modal checkbox spacing fix** (`cb620e2`) — Scoped form label selector to direct children (`.form-group > label`) preventing block override on `.checkbox-label`; styled `.checkbox-group` as compact inline-flex items with natural row gaps (`gap: 8px 16px`) and balanced modal-actions margin.
-5. **Test suite fix & 100% green tests** (`9034724`) — Ordered test run (`auth.test.js` -> `api.test.js` -> `migrations.test.js`), added rate limiter bypass for tests, and bypassed DNS lookup in test environment for webhook SSRF check.
-6. **Date bug fix & houseplant support** (PR #4) — Fixed off-by-one UTC midnight issue across task, plant, and seed dates; added houseplant plant type and lifecycle stages.
-7. **Security hardening** (PR #3) — Secure cookies, webhook secret masking, SSRF guard, session revocation on password change, CSV formula injection defense, atomic OOBE admin creation.
-8. **User permissions expansion** (`56ac7ee`) — Regular users can now manage locations, seeds, and calendar crops (removed `requireAdmin` from 11 backend routes, removed `isAdmin` UI guards from seed/crop drawers and calendar add button)
-9. **Planting calendar** (`43cd1b3`) — Calendar with custom crop CRUD and Perenual API integration
-10. **New buttons for all users** (`8d9db98`) — Added New button to plants and seeds screens
-11. **Mobile app-like nav** (`c4a7be7`) — Bottom nav with 5 items, More bottom sheet, MD3 pill indicator, safe area support, toast/modal repositioning
-12. **Event delegation for garden types** (`5f66d83`) — Fix toggle handlers using delegation
-13. **Garden type settings toggle fix** (`0b7cc5e`) — Prevent background scroll on modals
+1. **Advanced Recurring Task Schedules, Multi-Times, and Termination Conditions (`008_task_recurrence_schedules.js`)** — Implemented comprehensive task recurrence engine with flexible scheduling:
+   - **Multi-Occurrence Scheduling**: Recurrence can be configured either by day interval or by specific days of the week (`[Mon]`–`[Sun]` selection pills).
+   - **Multiple Times per Day**: Users can add multiple daily times (e.g., `08:00`, `14:00`, `18:00`). Completing a task advances to the next time of day on that same date; completing the final time of the day advances to the next scheduled day at the first time slot.
+   - **Termination Rules**: Supports termination conditions: `Never`, `On Date` (stops after specified end date), `After Occurrences` (tracks occurrence count and stops after N runs), or `When Garden Condition Met` (dynamic garden-scoped conditions: `All plants in garden harvested`, `All plants in garden transplanted`, or `Garden empty / no active plants`).
+   - **Disabled Schedule State & Lifecycle**: When a termination condition is reached, tasks enter a disabled state (`is_disabled: 1`) with an explanatory reason (`disabled_reason`) rather than silently disappearing. Disabled tasks can be viewed in a dedicated "Ended / Disabled" tab on the Tasks page, inspected with detail badges, permanently deleted, or edited and re-enabled (`PATCH /api/tasks/:id/re-enable`, `PATCH /api/tasks/:id/disable`).
+   - **Validation & Persistence**: Added Migration 008, `server/recurrence.js`, API routes, validation rules, UI controls for task creation and editing modals, and 10 unit/integration tests (`tests/recurring-tasks.test.js`).
+2. **Garden Types Accordion & Container Master Controls (`PUT /api/garden-types/category/:category`, `d668fcb`)** — Redesigned the Garden Types panel in Settings into collapsible accordion groups (Hydroponic, Soil, Container, Aquaponics) with smooth chevron indicators, category icons, live active count badges, and master container toggle switches. Admins can disable or enable entire categories in a single action, while preserving independent toggles for individual subtypes. Supports indeterminate/partial container state. Added backend category endpoint `PUT /api/garden-types/category/:category`, individual type audit logging, and automated test suite (`tests/garden-types-accordion.test.js`).
+3. **Admin user deletion case resilience & cache-busting bump (`9ce5ab4`)** — Added lowercase `deleteuser` alias to the `API` client object alongside `deleteUser` to prevent runtime method lookup errors across case conventions. Bumped asset query parameters to `v=10` across HTML script and stylesheet tags to resolve stale client-side script caching on mobile browsers.
+4. **Plant stage capitalization & case-insensitive enum validation** — Standardized plant stage and status formatting across all plants (including houseplants and 'Thriving'). Added `formatStage()` and `STAGE_LABELS` in frontend, ensuring growth stages and statuses display capitalized (Title Case) across plant lists, detail drawers, dashboard attention items, failure records, and dropdown options. Enhanced `server/validate.js` `enumVal()` to be case-insensitive, accepting capitalized stage inputs while saving canonical values. Added `.badge { text-transform: capitalize; }` and bumped asset version hashes.
+5. **Admin non-admin user deletion (`DELETE /api/admin/users/:id`)** — Admins can now permanently remove non-admin accounts from the Users panel in Settings. The backend cascades sessions and user audit records within an atomic transaction while preventing self-deletion and deletion of admin accounts. Non-admins receive 403.
+6. **Dynamic plant creation from planting calendar lines** — Clicking any month cell or schedule bar on a calendar entry line, the quick-add button in the crop column, or "Plant this Crop" in the crop detail drawer opens an in-page dynamic modal pre-populated with crop details (name, species, plant type from category, growth stage tailored to the clicked month window [seed / seedling / harvest], seeded date, growing notes & maturity days, inventory seed match, and active garden). Closing or submitting keeps the user on the calendar page with scroll position and active filter preserved.
+7. **Modal checkbox spacing fix** (`cb620e2`) — Scoped form label selector to direct children (`.form-group > label`) preventing block override on `.checkbox-label`; styled `.checkbox-group` as compact inline-flex items with natural row gaps (`gap: 8px 16px`) and balanced modal-actions margin.
+8. **Test suite fix & 100% green tests** (`9034724`) — Ordered test run (`auth.test.js` -> `api.test.js` -> `migrations.test.js`), added rate limiter bypass for tests, and bypassed DNS lookup in test environment for webhook SSRF check.
+9. **Date bug fix & houseplant support** (PR #4) — Fixed off-by-one UTC midnight issue across task, plant, and seed dates; added houseplant plant type and lifecycle stages.
+10. **Security hardening** (PR #3) — Secure cookies, webhook secret masking, SSRF guard, session revocation on password change, CSV formula injection defense, atomic OOBE admin creation.
+11. **User permissions expansion** (`56ac7ee`) — Regular users can now manage locations, seeds, and calendar crops (removed `requireAdmin` from 11 backend routes, removed `isAdmin` UI guards from seed/crop drawers and calendar add button)
+12. **Planting calendar** (`43cd1b3`) — Calendar with custom crop CRUD and Perenual API integration
+13. **New buttons for all users** (`8d9db98`) — Added New button to plants and seeds screens
+14. **Mobile app-like nav** (`c4a7be7`) — Bottom nav with 5 items, More bottom sheet, MD3 pill indicator, safe area support, toast/modal repositioning
+15. **Event delegation for garden types** (`5f66d83`) — Fix toggle handlers using delegation
+16. **Garden type settings toggle fix** (`0b7cc5e`) — Prevent background scroll on modals

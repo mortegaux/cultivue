@@ -137,15 +137,25 @@ Multi-step OOBE wizard.
 ## Tasks
 
 ### GET /gardens/:gardenId/tasks
-### GET /tasks?status=active&priority=high&limit=50
+### GET /tasks?status=active|completed|disabled&priority=high&limit=50
 Cross-garden task listing with filtering.
 
+### POST /tasks
 ### POST /gardens/:gardenId/tasks
-**Body:** `{ title, description, due_date, priority, is_recurring, recurring_days }`
+**Body:** `{ title, description, due_date, due_time, priority, is_recurring, recurring_days, recurrence_type, days_of_week, times_of_day, end_type, end_date, end_occurrences, end_condition }`
 
 ### PUT /tasks/:id
+**Body:** Same as POST, plus `is_completed`, `is_disabled`, `disabled_reason`.
+
 ### PATCH /tasks/:id/toggle
-Toggles completion. Creates next recurring task if applicable.
+Toggles completion. Evaluates termination conditions and advances to next recurring task if applicable. If a termination condition is met (end date exceeded, max occurrences reached, all plants harvested/transplanted, or garden empty), sets `is_disabled: true` with reason and does not spawn a new task.
+
+### PATCH /tasks/:id/re-enable
+Re-enables a disabled recurring task schedule.
+
+### PATCH /tasks/:id/disable
+Disables/pauses a recurring task schedule.
+**Body:** `{ reason }`
 
 ### DELETE /tasks/:id
 

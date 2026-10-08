@@ -1896,8 +1896,9 @@ async function renderTasks(main) {
         <option value="__general__">General (no garden)</option>
         ${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}
       </select>
-      <div class="tabs" style="max-width:300px" role="tablist">
+      <div class="tabs" role="tablist">
         <button class="tab active" role="tab" data-tab="active" type="button">Active</button>
+        <button class="tab" role="tab" data-tab="disabled" type="button" id="tabDisabled">Ended / Disabled</button>
         <button class="tab" role="tab" data-tab="completed" type="button">Completed</button>
       </div>
     </div>
@@ -1913,28 +1914,43 @@ async function renderTasks(main) {
   let gardenFilter = '';
 
   function renderFilteredTasks() {
-    let filtered = allTasks.filter(t => currentTab === 'active' ? !t.is_completed : t.is_completed);
+    let filtered = allTasks;
+    if (currentTab === 'active') {
+      filtered = filtered.filter(t => !t.is_completed && !t.is_disabled);
+    } else if (currentTab === 'disabled') {
+      filtered = filtered.filter(t => t.is_disabled);
+    } else if (currentTab === 'completed') {
+      filtered = filtered.filter(t => t.is_completed);
+    }
+
     if (gardenFilter === '__general__') filtered = filtered.filter(t => !t.garden_id);
     else if (gardenFilter) filtered = filtered.filter(t => t.garden_id === gardenFilter);
 
     const el = document.getElementById('globalTasksList');
-    if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${currentTab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
+    if (!filtered.length) {
+      const msg = currentTab === 'active' ? 'No active tasks' : currentTab === 'disabled' ? 'No ended or disabled task schedules' : 'No completed tasks';
+      el.innerHTML = `<div class="empty-state"><h3>${msg}</h3></div>`;
+      return;
+    }
 
     el.innerHTML = `<div class="card" style="padding:0">${filtered.map(task => {
-      const isOverdue = !task.is_completed && isOverdueDate(task.due_date);
-      return `<div class="task-item">
+      const isOverdue = !task.is_completed && !task.is_disabled && isOverdueDate(task.due_date);
+      const recSummary = formatRecurrenceSummary(task);
+      return `<div class="task-item ${task.is_disabled ? 'disabled' : ''}">
         <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
         <div class="task-content">
           <div class="task-title ${task.is_completed ? 'completed' : ''}">${esc(task.title)}</div>
           <div class="task-meta">
             <span><span class="priority-dot priority-${task.priority}" aria-hidden="true"></span>${task.priority}</span>
-            <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}</span>
-            ${task.is_recurring ? '<span>Recurring</span>' : ''}
+            <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}${task.due_time ? ' at ' + esc(task.due_time) : ''}</span>
+            ${task.is_recurring ? `<span title="${esc(recSummary)}">Recurring: ${esc(recSummary)}</span>` : ''}
+            ${task.is_disabled ? `<span class="badge badge-amber" title="${esc(task.disabled_reason || '')}">Ended: ${esc(task.disabled_reason || 'Disabled')}</span>` : ''}
             ${task.garden_name ? `<span class="badge badge-blue">${esc(task.garden_name)}</span>` : '<span class="badge badge-gray">General</span>'}
             ${task.plant_name ? `<span class="badge badge-green">${esc(task.plant_name)}</span>` : ''}
           </div>
         </div>
         <div class="task-actions">
+          ${task.is_disabled ? `<button class="btn btn-secondary btn-sm" type="button" data-reenable-task="${task.id}">Re-enable</button>` : ''}
           <button class="btn btn-secondary btn-sm" type="button" data-edit-task="${task.id}" aria-label="Edit task">Edit</button>
           <button class="btn-icon btn-sm" type="button" data-delete-task="${task.id}" aria-label="Delete task" title="Delete">&#x1F5D1;</button>
         </div>
@@ -1943,8 +1959,20 @@ async function renderTasks(main) {
 
     el.querySelectorAll('[data-toggle-id]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        await API.toggleTask(btn.dataset.toggleId);
-        toast(btn.classList.contains('checked') ? 'Task reopened' : 'Task completed');
+        const res = await API.toggleTask(btn.dataset.toggleId);
+        if (res && res.schedule_ended) {
+          toast(`Task completed. ${res.disabled_reason || 'Schedule ended'}`);
+        } else {
+          toast(btn.classList.contains('checked') ? 'Task reopened' : 'Task completed');
+        }
+        allTasks = await API.getAllTasks();
+        renderFilteredTasks();
+      });
+    });
+    el.querySelectorAll('[data-reenable-task]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await API.reEnableTask(btn.dataset.reenableTask);
+        toast('Schedule re-enabled');
         allTasks = await API.getAllTasks();
         renderFilteredTasks();
       });
@@ -1989,23 +2017,37 @@ async function renderTasks(main) {
 }
 
 function renderTasksList(tasks, tab) {
-  const filtered = tasks.filter(t => tab === 'active' ? !t.is_completed : t.is_completed);
+  let filtered = tasks;
+  if (tab === 'active') {
+    filtered = filtered.filter(t => !t.is_completed && !t.is_disabled);
+  } else if (tab === 'disabled') {
+    filtered = filtered.filter(t => t.is_disabled);
+  } else if (tab === 'completed') {
+    filtered = filtered.filter(t => t.is_completed);
+  }
   const el = document.getElementById('tasksList');
-  if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${tab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
+  if (!filtered.length) {
+    const msg = tab === 'active' ? 'No active tasks' : tab === 'disabled' ? 'No ended or disabled task schedules' : 'No completed tasks';
+    el.innerHTML = `<div class="empty-state"><h3>${msg}</h3></div>`;
+    return;
+  }
 
   el.innerHTML = filtered.map(task => {
-    const isOverdue = !task.is_completed && isOverdueDate(task.due_date);
-    return `<div class="task-item">
+    const isOverdue = !task.is_completed && !task.is_disabled && isOverdueDate(task.due_date);
+    const recSummary = formatRecurrenceSummary(task);
+    return `<div class="task-item ${task.is_disabled ? 'disabled' : ''}">
       <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
       <div class="task-content">
         <div class="task-title ${task.is_completed ? 'completed' : ''}">${esc(task.title)}</div>
         <div class="task-meta">
           <span><span class="priority-dot priority-${task.priority}" aria-hidden="true"></span>${task.priority}</span>
-          <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}</span>
-          ${task.is_recurring ? '<span>Recurring</span>' : ''}
+          <span class="${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue: ' : ''}${formatDate(task.due_date)}${task.due_time ? ' at ' + esc(task.due_time) : ''}</span>
+          ${task.is_recurring ? `<span title="${esc(recSummary)}">Recurring: ${esc(recSummary)}</span>` : ''}
+          ${task.is_disabled ? `<span class="badge badge-amber" title="${esc(task.disabled_reason || '')}">Ended: ${esc(task.disabled_reason || 'Disabled')}</span>` : ''}
         </div>
       </div>
       <div class="task-actions">
+        ${task.is_disabled ? `<button class="btn btn-secondary btn-sm" type="button" data-reenable-task="${task.id}">Re-enable</button>` : ''}
         <button class="btn btn-secondary btn-sm" type="button" data-edit-task="${task.id}" aria-label="Edit task">Edit</button>
         <button class="btn-icon btn-sm" type="button" data-delete-task="${task.id}" aria-label="Delete task" title="Delete">&#x1F5D1;</button>
       </div>
@@ -2014,8 +2056,19 @@ function renderTasksList(tasks, tab) {
 
   el.querySelectorAll('[data-toggle-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await API.toggleTask(btn.dataset.toggleId);
-      toast(btn.classList.contains('checked') ? 'Task reopened' : 'Task completed');
+      const res = await API.toggleTask(btn.dataset.toggleId);
+      if (res && res.schedule_ended) {
+        toast(`Task completed. ${res.disabled_reason || 'Schedule ended'}`);
+      } else {
+        toast(btn.classList.contains('checked') ? 'Task reopened' : 'Task completed');
+      }
+      renderPage();
+    });
+  });
+  el.querySelectorAll('[data-reenable-task]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await API.reEnableTask(btn.dataset.reenableTask);
+      toast('Schedule re-enabled');
       renderPage();
     });
   });
@@ -2035,6 +2088,255 @@ function renderTasksList(tasks, tab) {
   });
 }
 
+function formatRecurrenceSummary(task) {
+  if (!task.is_recurring) return '';
+  const parts = [];
+  if (task.recurrence_type === 'days_of_week' && task.days_of_week && task.days_of_week.length) {
+    const dayLabels = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+    parts.push(task.days_of_week.map(d => dayLabels[d] || d).join(', '));
+  } else if (task.recurring_days === 1) {
+    parts.push('Daily');
+  } else if (task.recurring_days === 7) {
+    parts.push('Weekly');
+  } else {
+    parts.push(`Every ${task.recurring_days || 7}d`);
+  }
+
+  if (task.times_of_day && task.times_of_day.length > 1) {
+    parts.push(`${task.times_of_day.length}x daily (${task.times_of_day.join(', ')})`);
+  } else if (task.due_time) {
+    parts.push(`at ${task.due_time}`);
+  }
+
+  if (task.end_type === 'condition' && task.end_condition) {
+    const condLabels = {
+      all_harvested: 'Ends: all harvested',
+      all_transplanted: 'Ends: all transplanted',
+      garden_empty: 'Ends: garden empty'
+    };
+    parts.push(condLabels[task.end_condition] || 'Ends on condition');
+  } else if (task.end_type === 'date' && task.end_date) {
+    parts.push(`Ends ${task.end_date}`);
+  } else if (task.end_type === 'occurrences' && task.end_occurrences) {
+    parts.push(`Ends after ${task.end_occurrences}x`);
+  }
+
+  return parts.join(' • ');
+}
+
+function renderRecurrenceControls(task = {}, isEdit = false, hasGarden = true) {
+  const isRecurring = !!task.is_recurring;
+  const recurrenceType = task.recurrence_type || 'interval';
+  const recurringDays = task.recurring_days || 7;
+  const daysOfWeek = Array.isArray(task.days_of_week) ? task.days_of_week : (typeof task.days_of_week === 'string' ? task.days_of_week.split(',') : []);
+  const timesOfDay = Array.isArray(task.times_of_day) && task.times_of_day.length ? task.times_of_day : (task.due_time ? [task.due_time] : ['09:00']);
+  const endType = task.end_type || 'never';
+  const endDate = task.end_date || '';
+  const endOccurrences = task.end_occurrences || 5;
+  const endCondition = task.end_condition || 'all_harvested';
+
+  const allDays = [
+    { id: 'mon', label: 'Mon' },
+    { id: 'tue', label: 'Tue' },
+    { id: 'wed', label: 'Wed' },
+    { id: 'thu', label: 'Thu' },
+    { id: 'fri', label: 'Fri' },
+    { id: 'sat', label: 'Sat' },
+    { id: 'sun', label: 'Sun' }
+  ];
+
+  return `
+    <div class="form-group">
+      <label class="checkbox-label" style="font-weight:600">
+        <input type="checkbox" id="tf-recurring" name="is_recurring" ${isRecurring ? 'checked' : ''}>
+        Recurring schedule
+      </label>
+    </div>
+
+    <div class="recurrence-box" id="recurringBox" ${isRecurring ? '' : 'hidden'}>
+      <div>
+        <label style="font-weight:600;font-size:0.85rem">Recurrence Pattern</label>
+        <div class="recurrence-pattern-radios" style="margin-top:6px">
+          <label class="checkbox-label" style="font-size:0.85rem">
+            <input type="radio" name="recurrence_type" value="interval" ${recurrenceType === 'interval' ? 'checked' : ''}> Every X Days
+          </label>
+          <label class="checkbox-label" style="font-size:0.85rem">
+            <input type="radio" name="recurrence_type" value="days_of_week" ${recurrenceType === 'days_of_week' ? 'checked' : ''}> Days of Week
+          </label>
+        </div>
+      </div>
+
+      <div id="intervalGroup" ${recurrenceType === 'interval' ? '' : 'hidden'}>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label for="tf-days" style="font-size:0.85rem">Repeat every</label>
+          <input class="form-input" id="tf-days" name="recurring_days" type="number" min="1" max="365" value="${recurringDays}" style="width:80px">
+          <span style="font-size:0.85rem">day(s)</span>
+        </div>
+      </div>
+
+      <div id="daysOfWeekGroup" ${recurrenceType === 'days_of_week' ? '' : 'hidden'}>
+        <div style="font-size:0.85rem;margin-bottom:6px">Select days of the week:</div>
+        <div class="day-pills" id="dayPillsContainer">
+          ${allDays.map(d => `
+            <button type="button" class="day-pill ${daysOfWeek.includes(d.id) ? 'active' : ''}" data-day="${d.id}" aria-pressed="${daysOfWeek.includes(d.id)}">${d.label}</button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="font-weight:600;font-size:0.85rem">Time(s) of Day</label>
+          <button type="button" class="btn btn-secondary btn-sm" id="addTimeSlotBtn" style="padding:2px 8px;font-size:0.75rem">+ Add time</button>
+        </div>
+        <div class="time-slots-list" id="timeSlotsContainer">
+          ${timesOfDay.map((t, idx) => `
+            <div class="time-slot-row">
+              <input type="time" class="form-input time-slot-input" value="${esc(t)}" required>
+              ${idx > 0 ? `<button type="button" class="btn-icon btn-sm remove-time-btn" title="Remove time" style="color:var(--error)">✕</button>` : `<span style="font-size:0.75rem;color:var(--text-tertiary)">(Primary)</span>`}
+            </div>
+          `).join('')}
+        </div>
+        <div class="form-help">Set multiple times for multiple occurrences per day (e.g. morning and evening).</div>
+      </div>
+
+      <div>
+        <label for="tf-end-type" style="font-weight:600;font-size:0.85rem">Termination Rule ("Ends")</label>
+        <select class="form-input" id="tf-end-type" name="end_type" style="margin-top:4px">
+          <option value="never" ${endType === 'never' ? 'selected' : ''}>Never (repeats indefinitely)</option>
+          <option value="date" ${endType === 'date' ? 'selected' : ''}>On a specific date</option>
+          <option value="occurrences" ${endType === 'occurrences' ? 'selected' : ''}>After number of occurrences</option>
+          <option value="condition" ${endType === 'condition' ? 'selected' : ''}>When garden condition is met</option>
+        </select>
+      </div>
+
+      <div id="endGroupDate" ${endType === 'date' ? '' : 'hidden'}>
+        <label for="tf-end-date" style="font-size:0.85rem">End Date</label>
+        <input class="form-input" id="tf-end-date" name="end_date" type="date" value="${esc(endDate)}">
+      </div>
+
+      <div id="endGroupOccurrences" ${endType === 'occurrences' ? '' : 'hidden'}>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label for="tf-end-occurrences" style="font-size:0.85rem">End after</label>
+          <input class="form-input" id="tf-end-occurrences" name="end_occurrences" type="number" min="1" max="1000" value="${endOccurrences}" style="width:80px">
+          <span style="font-size:0.85rem">completed occurrence(s)</span>
+        </div>
+      </div>
+
+      <div id="endGroupCondition" ${endType === 'condition' ? '' : 'hidden'}>
+        <label for="tf-end-condition" style="font-size:0.85rem">Condition to End Schedule</label>
+        <select class="form-input" id="tf-end-condition" name="end_condition">
+          <option value="all_harvested" ${endCondition === 'all_harvested' ? 'selected' : ''}>When all plants in garden are harvested</option>
+          <option value="all_transplanted" ${endCondition === 'all_transplanted' ? 'selected' : ''}>When all plants in garden are transplanted</option>
+          <option value="garden_empty" ${endCondition === 'garden_empty' ? 'selected' : ''}>When garden is empty (no active plants)</option>
+        </select>
+        <div class="form-help">When this condition occurs, the recurring task transitions into a disabled state where it can be removed or re-enabled.</div>
+      </div>
+    </div>
+  `;
+}
+
+function setupRecurrenceControls(modalEl) {
+  const recurringBox = modalEl.querySelector('#recurringBox');
+  const recurringCheckbox = modalEl.querySelector('#tf-recurring');
+  if (!recurringCheckbox || !recurringBox) return;
+
+  recurringCheckbox.addEventListener('change', e => {
+    recurringBox.hidden = !e.target.checked;
+  });
+
+  // Radio toggle for pattern
+  modalEl.querySelectorAll('input[name="recurrence_type"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      const isDaysOfWeek = e.target.value === 'days_of_week';
+      modalEl.querySelector('#intervalGroup').hidden = isDaysOfWeek;
+      modalEl.querySelector('#daysOfWeekGroup').hidden = !isDaysOfWeek;
+    });
+  });
+
+  // Day pills toggle
+  modalEl.querySelectorAll('#dayPillsContainer .day-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      pill.classList.toggle('active');
+      pill.setAttribute('aria-pressed', pill.classList.contains('active'));
+    });
+  });
+
+  // Add time slot
+  const addTimeBtn = modalEl.querySelector('#addTimeSlotBtn');
+  const timeSlotsContainer = modalEl.querySelector('#timeSlotsContainer');
+  if (addTimeBtn && timeSlotsContainer) {
+    addTimeBtn.addEventListener('click', () => {
+      const row = document.createElement('div');
+      row.className = 'time-slot-row';
+      row.innerHTML = `
+        <input type="time" class="form-input time-slot-input" value="18:00" required>
+        <button type="button" class="btn-icon btn-sm remove-time-btn" title="Remove time" style="color:var(--error)">✕</button>
+      `;
+      row.querySelector('.remove-time-btn').addEventListener('click', () => row.remove());
+      timeSlotsContainer.appendChild(row);
+    });
+
+    timeSlotsContainer.querySelectorAll('.remove-time-btn').forEach(btn => {
+      btn.addEventListener('click', e => e.target.closest('.time-slot-row').remove());
+    });
+  }
+
+  // End type switch
+  const endTypeSelect = modalEl.querySelector('#tf-end-type');
+  if (endTypeSelect) {
+    endTypeSelect.addEventListener('change', e => {
+      const val = e.target.value;
+      modalEl.querySelector('#endGroupDate').hidden = (val !== 'date');
+      modalEl.querySelector('#endGroupOccurrences').hidden = (val !== 'occurrences');
+      modalEl.querySelector('#endGroupCondition').hidden = (val !== 'condition');
+    });
+  }
+}
+
+function extractRecurrenceFormData(modalEl) {
+  const isRecurring = !!modalEl.querySelector('#tf-recurring')?.checked;
+  if (!isRecurring) {
+    return {
+      is_recurring: false,
+      recurring_days: null,
+      recurrence_type: 'interval',
+      days_of_week: [],
+      times_of_day: [],
+      due_time: null,
+      end_type: 'never',
+      end_date: null,
+      end_occurrences: null,
+      end_condition: null
+    };
+  }
+
+  const recurrenceType = modalEl.querySelector('input[name="recurrence_type"]:checked')?.value || 'interval';
+  const recurringDays = parseInt(modalEl.querySelector('#tf-days')?.value, 10) || 7;
+  const selectedDays = [...modalEl.querySelectorAll('#dayPillsContainer .day-pill.active')].map(p => p.dataset.day);
+
+  const timeInputs = [...modalEl.querySelectorAll('#timeSlotsContainer .time-slot-input')];
+  const timesOfDay = [...new Set(timeInputs.map(inp => inp.value).filter(Boolean))].sort();
+  const dueTime = timesOfDay.length ? timesOfDay[0] : null;
+
+  const endType = modalEl.querySelector('#tf-end-type')?.value || 'never';
+  const endDate = modalEl.querySelector('#tf-end-date')?.value || null;
+  const endOccurrences = parseInt(modalEl.querySelector('#tf-end-occurrences')?.value, 10) || null;
+  const endCondition = modalEl.querySelector('#tf-end-condition')?.value || null;
+
+  return {
+    is_recurring: true,
+    recurrence_type: recurrenceType,
+    recurring_days: recurringDays,
+    days_of_week: selectedDays,
+    times_of_day: timesOfDay,
+    due_time: dueTime,
+    end_type: endType,
+    end_date: endType === 'date' ? endDate : null,
+    end_occurrences: endType === 'occurrences' ? endOccurrences : null,
+    end_condition: endType === 'condition' ? endCondition : null
+  };
+}
+
 function showAddTaskModal(gardenId) {
   if (!gardenId) gardenId = state.selectedGardenId;
   const today = todayLocal();
@@ -2045,21 +2347,19 @@ function showAddTaskModal(gardenId) {
       <div class="form-group"><label for="tf-due">Due Date <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-due" name="due_date" type="date" value="${today}" required aria-required="true"></div>
       <div class="form-group"><label for="tf-priority">Priority</label><select class="form-input" id="tf-priority" name="priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
     </div>
-    <div class="form-group"><label class="checkbox-label"><input type="checkbox" id="tf-recurring" name="is_recurring"> Recurring task</label></div>
-    <div class="form-group" id="recurringDaysGroup" hidden><label for="tf-days">Repeat every (days)</label><input class="form-input" id="tf-days" name="recurring_days" type="number" min="1" value="7"></div>
+    ${renderRecurrenceControls({}, false, !!gardenId)}
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelTask">Cancel</button><button type="submit" class="btn btn-primary">Add Task</button></div></form>`);
   document.getElementById('cancelTask').addEventListener('click', closeModal);
-  document.getElementById('tf-recurring').addEventListener('change', e => {
-    document.getElementById('recurringDaysGroup').hidden = !e.target.checked;
-  });
-  document.getElementById('taskForm').addEventListener('submit', async e => {
+  const form = document.getElementById('taskForm');
+  setupRecurrenceControls(form);
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const isRecurring = !!fd.get('is_recurring');
+    const recData = extractRecurrenceFormData(form);
     await API.createTask(gardenId, {
       title: fd.get('title'), description: fd.get('description') || null,
       due_date: fd.get('due_date'), priority: fd.get('priority'),
-      is_recurring: isRecurring, recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
+      ...recData
     });
     closeModal();
     toast('Task created');
@@ -2091,23 +2391,36 @@ function showAddTaskModalGlobal() {
       <div class="form-group"><label for="tf-due">Due Date <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-due" name="due_date" type="date" value="${today}" required aria-required="true"></div>
       <div class="form-group"><label for="tf-priority">Priority</label><select class="form-input" id="tf-priority" name="priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
     </div>
-    <div class="form-group"><label class="checkbox-label"><input type="checkbox" id="tf-recurring" name="is_recurring"> Recurring task</label></div>
-    <div class="form-group" id="recurringDaysGroup" hidden><label for="tf-days">Repeat every (days)</label><input class="form-input" id="tf-days" name="recurring_days" type="number" min="1" value="7"></div>
+    ${renderRecurrenceControls({}, false, false)}
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelTask">Cancel</button><button type="submit" class="btn btn-primary">Add Task</button></div></form>`);
 
   document.getElementById('cancelTask').addEventListener('click', closeModal);
-  document.getElementById('tf-recurring').addEventListener('change', e => {
-    document.getElementById('recurringDaysGroup').hidden = !e.target.checked;
-  });
+  const form = document.getElementById('taskForm');
+  setupRecurrenceControls(form);
 
   const scopeEl = document.getElementById('tf-scope');
   const plantGroup = document.getElementById('tf-plant-group');
   const plantEl = document.getElementById('tf-plant');
+  const endCondOption = form.querySelector('option[value="condition"]');
+
+  function updateConditionOption() {
+    const isGarden = scopeEl.value.startsWith('garden:');
+    if (endCondOption) {
+      endCondOption.disabled = !isGarden;
+      endCondOption.textContent = isGarden ? 'When garden condition is met' : 'When garden condition is met (requires garden)';
+      if (!isGarden && form.querySelector('#tf-end-type').value === 'condition') {
+        form.querySelector('#tf-end-type').value = 'never';
+        form.querySelector('#endGroupCondition').hidden = true;
+      }
+    }
+  }
+  updateConditionOption();
 
   // Load plants when a garden is selected
   Promise.all(gardenPlantPromises).then(() => {
     scopeEl.addEventListener('change', () => {
       const val = scopeEl.value;
+      updateConditionOption();
       if (val.startsWith('garden:')) {
         const gid = val.split(':')[1];
         const gardenPlants = allPlants.filter(p => p.garden_id === gid && p.is_active);
@@ -2120,15 +2433,15 @@ function showAddTaskModalGlobal() {
     });
   });
 
-  document.getElementById('taskForm').addEventListener('submit', async e => {
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const isRecurring = !!fd.get('is_recurring');
     const scope = scopeEl.value;
+    const recData = extractRecurrenceFormData(form);
     const data = {
       title: fd.get('title'), description: fd.get('description') || null,
       due_date: fd.get('due_date'), priority: fd.get('priority'),
-      is_recurring: isRecurring, recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
+      ...recData
     };
     if (scope.startsWith('garden:')) {
       data.garden_id = scope.split(':')[1];
@@ -2142,36 +2455,62 @@ function showAddTaskModalGlobal() {
 }
 
 function showTaskDetailModal(task) {
-  const isOverdue = !task.is_completed && task.due_date && isOverdueDate(task.due_date);
+  const isOverdue = !task.is_completed && !task.is_disabled && task.due_date && isOverdueDate(task.due_date);
   const priorityLabels = { low: 'Low', medium: 'Medium', high: 'High' };
+  const recurrenceSummary = formatRecurrenceSummary(task);
   showModal(`
     <h2 id="modalTitle">${esc(task.title)}</h2>
     <div style="display:flex;flex-direction:column;gap:12px">
+      ${task.is_disabled ? `
+        <div class="task-disabled-alert">
+          <span class="material-symbols-outlined">event_busy</span>
+          <div>
+            <strong>Schedule Ended / Disabled</strong>
+            <div style="font-size:0.85rem">${esc(task.disabled_reason || 'Condition reached')}</div>
+          </div>
+        </div>
+      ` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <span class="badge badge-${task.priority === 'high' ? 'red' : task.priority === 'medium' ? 'amber' : 'green'}">
           <span class="priority-dot priority-${task.priority}" style="margin-right:4px"></span>${priorityLabels[task.priority] || task.priority} priority
         </span>
         ${isOverdue ? '<span class="badge badge-red">Overdue</span>' : ''}
-        ${task.is_recurring ? '<span class="badge badge-blue">Recurring</span>' : ''}
+        ${task.is_recurring ? `<span class="badge badge-blue">Recurring</span>` : ''}
+        ${task.is_disabled ? `<span class="badge badge-amber">Schedule Ended</span>` : ''}
       </div>
       ${task.description ? `<div style="color:var(--text-secondary);font-size:0.9rem;line-height:1.5">${esc(task.description)}</div>` : ''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:0.85rem">
-        <div><div class="detail-label">Due Date</div><div class="detail-value ${isOverdue ? 'overdue' : ''}">${formatDate(task.due_date)}</div></div>
-        <div><div class="detail-label">Status</div><div class="detail-value">${task.is_completed ? 'Completed' : 'Open'}</div></div>
+        <div><div class="detail-label">Due Date</div><div class="detail-value ${isOverdue ? 'overdue' : ''}">${formatDate(task.due_date)}${task.due_time ? ' at ' + esc(task.due_time) : ''}</div></div>
+        <div><div class="detail-label">Status</div><div class="detail-value">${task.is_disabled ? 'Disabled' : (task.is_completed ? 'Completed' : 'Open')}</div></div>
         ${task.garden_name ? `<div><div class="detail-label">Garden</div><div class="detail-value">${esc(task.garden_name)}</div></div>` : ''}
         ${task.plant_name ? `<div><div class="detail-label">Plant</div><div class="detail-value">${esc(task.plant_name)}</div></div>` : ''}
-        ${task.is_recurring && task.recurring_days ? `<div><div class="detail-label">Repeats</div><div class="detail-value">Every ${task.recurring_days} day${task.recurring_days !== 1 ? 's' : ''}</div></div>` : ''}
+        ${task.is_recurring ? `<div><div class="detail-label">Schedule</div><div class="detail-value">${esc(recurrenceSummary)}</div></div>` : ''}
+        ${task.occurrence_count ? `<div><div class="detail-label">Occurrences</div><div class="detail-value">${task.occurrence_count} completed</div></div>` : ''}
         ${task.completed_at ? `<div><div class="detail-label">Completed</div><div class="detail-value">${formatDateTime(task.completed_at)}</div></div>` : ''}
       </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" type="button" id="taskDetailDeleteBtn">Delete</button>
       <div style="flex:1"></div>
-      ${!task.is_completed ? '<button class="btn btn-primary" type="button" id="taskDetailCompleteBtn">Mark Complete</button>' : ''}
+      ${task.is_disabled ? '<button class="btn btn-secondary" type="button" id="taskDetailReenableBtn">Re-enable</button>' : ''}
+      <button class="btn btn-secondary btn-sm" type="button" id="taskDetailEditBtn">Edit</button>
+      ${!task.is_completed && !task.is_disabled ? '<button class="btn btn-primary" type="button" id="taskDetailCompleteBtn">Mark Complete</button>' : ''}
       <button class="btn btn-secondary" type="button" id="taskDetailCloseBtn">Close</button>
     </div>
   `);
   document.getElementById('taskDetailCloseBtn').addEventListener('click', closeModal);
+  document.getElementById('taskDetailEditBtn').addEventListener('click', () => {
+    closeModal();
+    showEditTaskModal(task);
+  });
+  if (task.is_disabled) {
+    document.getElementById('taskDetailReenableBtn')?.addEventListener('click', async () => {
+      await API.reEnableTask(task.id);
+      toast('Schedule re-enabled');
+      closeModal();
+      renderPage();
+    });
+  }
   document.getElementById('taskDetailDeleteBtn').addEventListener('click', async () => {
     if (!confirm('Delete this task?')) return;
     try {
@@ -2179,7 +2518,7 @@ function showTaskDetailModal(task) {
       closeModal();
       renderPage();
     } catch (err) {
-      showToast('Failed to delete task', 'error');
+      toast('Failed to delete task', 'error');
     }
   });
   const completeBtn = document.getElementById('taskDetailCompleteBtn');
@@ -2188,13 +2527,18 @@ function showTaskDetailModal(task) {
       completeBtn.disabled = true;
       completeBtn.textContent = 'Completing…';
       try {
-        await API.toggleTask(task.id);
+        const res = await API.toggleTask(task.id);
+        if (res && res.schedule_ended) {
+          toast(`Task completed. ${res.disabled_reason || 'Schedule ended'}`);
+        } else {
+          toast('Task completed');
+        }
         closeModal();
         renderPage();
       } catch (err) {
         completeBtn.disabled = false;
         completeBtn.textContent = 'Mark Complete';
-        showToast('Failed to complete task', 'error');
+        toast('Failed to complete task', 'error');
       }
     });
   }
@@ -2203,28 +2547,54 @@ function showTaskDetailModal(task) {
 function showEditTaskModal(task) {
   const dueDate = toDateInputValue(task.due_date);
   showModal(`<h2 id="modalTitle">Edit Task</h2><form id="taskForm">
+    ${task.is_disabled ? `
+      <div class="task-disabled-alert">
+        <span class="material-symbols-outlined">event_busy</span>
+        <div>
+          <strong>Schedule Ended / Disabled</strong>
+          <div style="font-size:0.85rem">${esc(task.disabled_reason || 'Condition reached')}</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label" style="font-weight:600">
+          <input type="checkbox" id="tf-enable-schedule" ${task.is_disabled ? '' : 'checked'}>
+          Re-enable this recurring schedule
+        </label>
+      </div>
+    ` : ''}
     <div class="form-group"><label for="tf-title">Title <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-title" name="title" value="${esc(task.title)}" required aria-required="true"></div>
     <div class="form-group"><label for="tf-desc">Description</label><textarea class="form-input" id="tf-desc" name="description" rows="2">${esc(task.description || '')}</textarea></div>
     <div class="form-row">
       <div class="form-group"><label for="tf-due">Due Date</label><input class="form-input" id="tf-due" name="due_date" type="date" value="${dueDate}" required></div>
       <div class="form-group"><label for="tf-priority">Priority</label><select class="form-input" id="tf-priority" name="priority"><option value="low" ${task.priority === 'low' ? 'selected' : ''}>Low</option><option value="medium" ${task.priority === 'medium' ? 'selected' : ''}>Medium</option><option value="high" ${task.priority === 'high' ? 'selected' : ''}>High</option></select></div>
     </div>
-    <div class="form-group"><label class="checkbox-label"><input type="checkbox" id="tf-recurring" name="is_recurring" ${task.is_recurring ? 'checked' : ''}> Recurring task</label></div>
-    <div class="form-group" id="recurringDaysGroup" ${task.is_recurring ? '' : 'hidden'}><label for="tf-days">Repeat every (days)</label><input class="form-input" id="tf-days" name="recurring_days" type="number" min="1" value="${task.recurring_days || 7}"></div>
+    ${renderRecurrenceControls(task, true, !!task.garden_id)}
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelTask">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div></form>`);
   document.getElementById('cancelTask').addEventListener('click', closeModal);
-  document.getElementById('tf-recurring').addEventListener('change', e => {
-    document.getElementById('recurringDaysGroup').hidden = !e.target.checked;
-  });
-  document.getElementById('taskForm').addEventListener('submit', async e => {
+  const form = document.getElementById('taskForm');
+  setupRecurrenceControls(form);
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const isRecurring = !!fd.get('is_recurring');
+    const recData = extractRecurrenceFormData(form);
+    const reEnableCheckbox = form.querySelector('#tf-enable-schedule');
+    let isDisabled = task.is_disabled;
+    let disabledReason = task.disabled_reason;
+    if (reEnableCheckbox) {
+      if (reEnableCheckbox.checked) {
+        isDisabled = false;
+        disabledReason = null;
+      } else {
+        isDisabled = true;
+      }
+    }
     await API.updateTask(task.id, {
       title: fd.get('title'), description: fd.get('description') || null,
       due_date: fd.get('due_date'), priority: fd.get('priority'),
-      is_completed: task.is_completed, is_recurring: isRecurring,
-      recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
+      is_completed: task.is_completed,
+      is_disabled: isDisabled,
+      disabled_reason: disabledReason,
+      ...recData
     });
     closeModal();
     toast('Task updated');
