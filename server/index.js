@@ -440,7 +440,7 @@ app.post('/api/seeds', requireAuth, (req, res) => {
 
   const variety = V.str(req.body.variety, 100);
   const supplier = V.str(req.body.supplier, 100);
-  const purchase_date = V.isoDate(req.body.purchase_date);
+  const purchase_date = V.dateOnly(req.body.purchase_date);
   const purchase_price = V.num(req.body.purchase_price, 0, 100000);
   const quantity = V.int(req.body.quantity, 0, 1000000) || 1;
   const quantity_unit = V.enumVal(req.body.quantity_unit, V.QUANTITY_UNITS) || 'packets';
@@ -465,7 +465,7 @@ app.put('/api/seeds/:id', requireAuth, (req, res) => {
 
   const variety = V.str(req.body.variety, 100);
   const supplier = V.str(req.body.supplier, 100);
-  const purchase_date = V.isoDate(req.body.purchase_date);
+  const purchase_date = V.dateOnly(req.body.purchase_date);
   const purchase_price = V.num(req.body.purchase_price, 0, 100000);
   const quantity = V.int(req.body.quantity, 0, 1000000) || 1;
   const quantity_unit = V.enumVal(req.body.quantity_unit, V.QUANTITY_UNITS) || 'packets';
@@ -702,7 +702,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   const plant_id = req.body.plant_id && V.isUUID(req.body.plant_id) ? req.body.plant_id : null;
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
-  const due_date = V.isoDate(req.body.due_date);
+  const due_date = V.dateOnly(req.body.due_date);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_recurring = req.body.is_recurring ? 1 : 0;
   const recurring_days = V.int(req.body.recurring_days, 1, 365);
@@ -724,7 +724,7 @@ app.post('/api/gardens/:gardenId/tasks', (req, res) => {
 
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
-  const due_date = V.isoDate(req.body.due_date);
+  const due_date = V.dateOnly(req.body.due_date);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_recurring = req.body.is_recurring ? 1 : 0;
   const recurring_days = V.int(req.body.recurring_days, 1, 365);
@@ -746,7 +746,7 @@ app.put('/api/tasks/:id', (req, res) => {
 
   const title = V.reqStr(req.body.title, 200);
   const description = V.str(req.body.description, 2000);
-  const due_date = V.isoDate(req.body.due_date);
+  const due_date = V.dateOnly(req.body.due_date);
   const priority = V.enumVal(req.body.priority, V.PRIORITIES) || 'medium';
   const is_completed = req.body.is_completed ? 1 : 0;
   const completed_at = is_completed ? new Date().toISOString() : null;
@@ -776,11 +776,19 @@ app.patch('/api/tasks/:id/toggle', (req, res) => {
     .run(newCompleted, completed_at, req.params.id);
 
   if (newCompleted && task.is_recurring && task.recurring_days) {
-    const nextDue = new Date(task.due_date);
-    nextDue.setDate(nextDue.getDate() + task.recurring_days);
+    // Date-only arithmetic: keep YYYY-MM-DD (no UTC-midnight shift).
+    const m = String(task.due_date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    let nextDue;
+    if (m) {
+      const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      d.setUTCDate(d.getUTCDate() + task.recurring_days);
+      nextDue = d.toISOString().slice(0, 10);
+    } else {
+      nextDue = V.dateOnly(task.due_date);
+    }
     const newId = uuidv4();
     db.prepare('INSERT INTO tasks (id, garden_id, plant_id, title, description, due_date, priority, is_recurring, recurring_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(newId, task.garden_id, task.plant_id, task.title, task.description, nextDue.toISOString(), task.priority, 1, task.recurring_days);
+      .run(newId, task.garden_id, task.plant_id, task.title, task.description, nextDue, task.priority, 1, task.recurring_days);
   }
 
   logAudit(req.user, 'update', 'task', req.params.id, newCompleted ? `Completed task "${task.title}"` : `Reopened task "${task.title}"`, getClientIP(req));
@@ -812,8 +820,8 @@ app.post('/api/gardens/:gardenId/plants', (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const plant_type = V.enumVal(req.body.plant_type, V.PLANT_TYPES);
   const species = V.reqStr(req.body.species, 100);
-  const seeded_date = V.isoDate(req.body.seeded_date);
-  const current_stage = V.enumVal(req.body.current_stage, V.GROWTH_STAGES) || 'seed';
+  const seeded_date = V.dateOnly(req.body.seeded_date);
+  const current_stage = V.enumVal(req.body.current_stage, V.ALL_STAGES) || (plant_type === 'houseplant' ? 'acquired' : 'seed');
   const notes = V.str(req.body.notes, 2000);
   const initial_ph = V.num(req.body.initial_ph, 0, 14);
   const initial_ppm = V.int(req.body.initial_ppm, 0, 100000);
@@ -838,11 +846,11 @@ app.put('/api/plants/:id', (req, res) => {
   const name = V.reqStr(req.body.name, 100);
   const plant_type = V.enumVal(req.body.plant_type, V.PLANT_TYPES);
   const species = V.reqStr(req.body.species, 100);
-  const seeded_date = V.isoDate(req.body.seeded_date);
-  const transplanted_date = V.isoDate(req.body.transplanted_date);
-  const current_stage = V.enumVal(req.body.current_stage, V.GROWTH_STAGES) || 'seed';
+  const seeded_date = V.dateOnly(req.body.seeded_date);
+  const transplanted_date = V.dateOnly(req.body.transplanted_date);
+  const current_stage = V.enumVal(req.body.current_stage, V.ALL_STAGES) || (plant_type === 'houseplant' ? 'acquired' : 'seed');
   const notes = V.str(req.body.notes, 2000);
-  const harvest_date = V.isoDate(req.body.harvest_date);
+  const harvest_date = V.dateOnly(req.body.harvest_date);
   const yield_amount = V.num(req.body.yield_amount, 0, 1000000);
   const is_active = req.body.is_active ? 1 : 0;
   const initial_ph = V.num(req.body.initial_ph, 0, 14);
@@ -902,7 +910,7 @@ app.get('/api/dashboard/stats', requireAuth, (req, res) => {
   const upcomingTasks = db.prepare(`
     SELECT t.*, g.name as garden_name FROM tasks t
     JOIN gardens g ON t.garden_id = g.id
-    WHERE t.is_completed = 0 AND t.due_date <= datetime('now', '+7 days')
+    WHERE t.is_completed = 0 AND t.due_date <= date('now', '+7 days')
     ORDER BY t.due_date ASC LIMIT 10
   `).all().map(t => ({ ...t, is_completed: false, is_recurring: !!t.is_recurring }));
 

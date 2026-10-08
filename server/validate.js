@@ -1,7 +1,10 @@
 // Strict allow-lists for enum-type fields
 const SYSTEM_TYPES = ['dwc', 'kratky', 'nft', 'ebbAndFlow', 'aeroponics', 'drip'];
-const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'other'];
+const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'houseplant', 'other'];
 const GROWTH_STAGES = ['seed', 'germination', 'seedling', 'vegetative', 'flowering', 'fruiting', 'harvest'];
+// Houseplants skip the seed-to-harvest lifecycle: they're acquired, not sown.
+const HOUSEPLANT_STAGES = ['acquired', 'acclimating', 'established', 'thriving'];
+const ALL_STAGES = [...GROWTH_STAGES, ...HOUSEPLANT_STAGES];
 const PRIORITIES = ['low', 'medium', 'high'];
 const QUANTITY_UNITS = ['packets', 'seeds', 'grams'];
 const FAILURE_STAGES = ['seed', 'germination', 'seedling'];
@@ -53,6 +56,22 @@ function isoDate(val) {
   return d.toISOString();
 }
 
+// Validate a calendar date and return YYYY-MM-DD. Date-only fields (task due
+// dates, seeded/transplanted/harvest/purchase dates) must be stored without a
+// time component: new Date("2026-10-08") parses as UTC midnight, which renders
+// as the previous day in western timezones. Accepts a full ISO datetime for
+// backward compatibility with older clients.
+function dateOnly(val) {
+  if (!val || typeof val !== 'string') return null;
+  const m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 // Validate enum value against allow-list
 function enumVal(val, allowed) {
   if (!val || typeof val !== 'string') return null;
@@ -72,6 +91,6 @@ function enumArray(val, allowed) {
 }
 
 module.exports = {
-  SYSTEM_TYPES, PLANT_TYPES, GROWTH_STAGES, PRIORITIES, QUANTITY_UNITS, FAILURE_STAGES,
-  str, reqStr, num, reqNum, int, isoDate, enumVal, isUUID, enumArray
+  SYSTEM_TYPES, PLANT_TYPES, GROWTH_STAGES, HOUSEPLANT_STAGES, ALL_STAGES, PRIORITIES, QUANTITY_UNITS, FAILURE_STAGES,
+  str, reqStr, num, reqNum, int, isoDate, dateOnly, enumVal, isUUID, enumArray
 };

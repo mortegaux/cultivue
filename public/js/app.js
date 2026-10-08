@@ -528,9 +528,38 @@ function esc(str) {
   return d.innerHTML;
 }
 
+// Today's date as YYYY-MM-DD in *local* time. (new Date().toISOString()
+// is UTC — after 7pm Central it returns tomorrow's date.)
+function todayLocal() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+
 function formatDate(iso) {
   if (!iso) return '--';
+  // Date-only values (YYYY-MM-DD) must be parsed as a local calendar date.
+  // new Date("2026-10-08") parses as UTC midnight, which renders as the
+  // previous day in western timezones. Handles legacy full-ISO too.
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Extract YYYY-MM-DD from a stored date for <input type="date"> prefill.
+function toDateInputValue(iso) {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+// A task is overdue when its due *date* is before today — a task due today
+// is not overdue.
+function isOverdueDate(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return false;
+  return `${m[1]}-${m[2]}-${m[3]}` < todayLocal();
 }
 
 function formatDateTime(iso) {
@@ -586,10 +615,15 @@ const SYSTEM_TYPES = {
   ebbAndFlow: 'Ebb & Flow', aeroponics: 'Aeroponics', drip: 'Drip System'
 };
 
-const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'other'];
+const PLANT_TYPES = ['vegetables', 'fruits', 'herbs', 'cannabis', 'flowers', 'houseplant', 'other'];
 const GROWTH_STAGES = ['seed', 'germination', 'seedling', 'vegetative', 'flowering', 'fruiting', 'harvest'];
-const STAGE_COLORS = { seed: 'gray', germination: 'purple', seedling: 'blue', vegetative: 'green', flowering: 'amber', fruiting: 'red', harvest: 'green' };
-const PLANT_ICONS = { vegetables: 'nutrition', fruits: 'local_florist', herbs: 'spa', cannabis: 'grass', flowers: 'filter_vintage', other: 'eco' };
+const HOUSEPLANT_STAGES = ['acquired', 'acclimating', 'established', 'thriving'];
+const ALL_STAGES = [...GROWTH_STAGES, ...HOUSEPLANT_STAGES];
+function stagesForType(plantType) {
+  return plantType === 'houseplant' ? HOUSEPLANT_STAGES : GROWTH_STAGES;
+}
+const STAGE_COLORS = { seed: 'gray', germination: 'purple', seedling: 'blue', vegetative: 'green', flowering: 'amber', fruiting: 'red', harvest: 'green', acquired: 'blue', acclimating: 'amber', established: 'green', thriving: 'green' };
+const PLANT_ICONS = { vegetables: 'nutrition', fruits: 'local_florist', herbs: 'spa', cannabis: 'grass', flowers: 'filter_vintage', houseplant: 'potted_plant', other: 'eco' };
 
 // === Tag Select Component ===
 function initTagSelect(containerId, items, opts = {}) {
@@ -1005,7 +1039,7 @@ async function renderDashboard(main) {
       tasksEl.innerHTML = '<p class="empty-text">No upcoming tasks</p>';
     } else {
       tasksEl.innerHTML = `<div class="card" style="padding:0"><div class="task-list-compact">${dashStats.upcoming_tasks.map(t => {
-        const isOverdue = new Date(t.due_date) < new Date();
+        const isOverdue = isOverdueDate(t.due_date);
         return `<div class="task-item-compact" data-task-id="${t.id}">
           <span class="priority-dot priority-${t.priority}" aria-label="${t.priority} priority"></span>
           <span class="task-item-title">${esc(t.title)}</span>
@@ -1564,7 +1598,7 @@ async function renderLogs(main) {
   const iconColor = catColor === 'green' ? 'green' : catColor === 'blue' ? 'secondary' : catColor === 'orange' ? 'warning' : 'green';
 
   // Default date range: last 30 days
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
   const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
   const dateFrom = state._logsDateFrom || thirtyAgo;
   const dateTo = state._logsDateTo || today;
@@ -1627,7 +1661,7 @@ async function renderLogs(main) {
   document.querySelectorAll('[data-range]').forEach(btn => {
     btn.addEventListener('click', () => {
       const range = btn.dataset.range;
-      const toDate = new Date().toISOString().split('T')[0];
+      const toDate = todayLocal();
       let fromDate;
       if (range === 'all') { fromDate = garden.start_date.split('T')[0]; }
       else { fromDate = new Date(Date.now() - parseInt(range) * 86400000).toISOString().split('T')[0]; }
@@ -1853,7 +1887,7 @@ async function renderTasks(main) {
     if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${currentTab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
 
     el.innerHTML = `<div class="card" style="padding:0">${filtered.map(task => {
-      const isOverdue = !task.is_completed && new Date(task.due_date) < new Date();
+      const isOverdue = !task.is_completed && isOverdueDate(task.due_date);
       return `<div class="task-item">
         <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
         <div class="task-content">
@@ -1926,7 +1960,7 @@ function renderTasksList(tasks, tab) {
   if (!filtered.length) { el.innerHTML = `<div class="empty-state"><h3>${tab === 'active' ? 'No active tasks' : 'No completed tasks'}</h3></div>`; return; }
 
   el.innerHTML = filtered.map(task => {
-    const isOverdue = !task.is_completed && new Date(task.due_date) < new Date();
+    const isOverdue = !task.is_completed && isOverdueDate(task.due_date);
     return `<div class="task-item">
       <button class="task-checkbox ${task.is_completed ? 'checked' : ''}" type="button" data-toggle-id="${task.id}" aria-label="${task.is_completed ? 'Mark incomplete' : 'Mark complete'}" role="checkbox" aria-checked="${task.is_completed}"></button>
       <div class="task-content">
@@ -1969,7 +2003,7 @@ function renderTasksList(tasks, tab) {
 
 function showAddTaskModal(gardenId) {
   if (!gardenId) gardenId = state.selectedGardenId;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
   showModal(`<h2 id="modalTitle">Add New Task</h2><form id="taskForm">
     <div class="form-group"><label for="tf-title">Title <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-title" name="title" placeholder="e.g., Water change" required aria-required="true"></div>
     <div class="form-group"><label for="tf-desc">Description</label><textarea class="form-input" id="tf-desc" name="description" rows="2" placeholder="Details..."></textarea></div>
@@ -1990,7 +2024,7 @@ function showAddTaskModal(gardenId) {
     const isRecurring = !!fd.get('is_recurring');
     await API.createTask(gardenId, {
       title: fd.get('title'), description: fd.get('description') || null,
-      due_date: new Date(fd.get('due_date')).toISOString(), priority: fd.get('priority'),
+      due_date: fd.get('due_date'), priority: fd.get('priority'),
       is_recurring: isRecurring, recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
     });
     closeModal();
@@ -2000,7 +2034,7 @@ function showAddTaskModal(gardenId) {
 }
 
 function showAddTaskModalGlobal() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
   // Collect all plants across all gardens
   const allPlants = [];
   const gardenPlantPromises = state.gardens.map(g => API.getPlants(g.id).then(plants => {
@@ -2059,7 +2093,7 @@ function showAddTaskModalGlobal() {
     const scope = scopeEl.value;
     const data = {
       title: fd.get('title'), description: fd.get('description') || null,
-      due_date: new Date(fd.get('due_date')).toISOString(), priority: fd.get('priority'),
+      due_date: fd.get('due_date'), priority: fd.get('priority'),
       is_recurring: isRecurring, recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
     };
     if (scope.startsWith('garden:')) {
@@ -2074,7 +2108,7 @@ function showAddTaskModalGlobal() {
 }
 
 function showTaskDetailModal(task) {
-  const isOverdue = !task.is_completed && task.due_date && new Date(task.due_date) < new Date();
+  const isOverdue = !task.is_completed && task.due_date && isOverdueDate(task.due_date);
   const priorityLabels = { low: 'Low', medium: 'Medium', high: 'High' };
   showModal(`
     <h2 id="modalTitle">${esc(task.title)}</h2>
@@ -2133,7 +2167,7 @@ function showTaskDetailModal(task) {
 }
 
 function showEditTaskModal(task) {
-  const dueDate = task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : '';
+  const dueDate = toDateInputValue(task.due_date);
   showModal(`<h2 id="modalTitle">Edit Task</h2><form id="taskForm">
     <div class="form-group"><label for="tf-title">Title <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="tf-title" name="title" value="${esc(task.title)}" required aria-required="true"></div>
     <div class="form-group"><label for="tf-desc">Description</label><textarea class="form-input" id="tf-desc" name="description" rows="2">${esc(task.description || '')}</textarea></div>
@@ -2154,7 +2188,7 @@ function showEditTaskModal(task) {
     const isRecurring = !!fd.get('is_recurring');
     await API.updateTask(task.id, {
       title: fd.get('title'), description: fd.get('description') || null,
-      due_date: new Date(fd.get('due_date')).toISOString(), priority: fd.get('priority'),
+      due_date: fd.get('due_date'), priority: fd.get('priority'),
       is_completed: task.is_completed, is_recurring: isRecurring,
       recurring_days: isRecurring ? parseInt(fd.get('recurring_days')) || 7 : null
     });
@@ -2175,7 +2209,7 @@ async function renderPlants(main) {
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       <select class="form-input" id="gardenFilter" style="width:auto" aria-label="Filter by garden"><option value="">All Gardens</option>${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select>
       ${locations.length ? `<select class="form-input" id="locationFilter" style="width:auto" aria-label="Filter by location"><option value="">All Locations</option>${locations.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select>` : ''}
-      <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
+      <select class="form-input" id="stageFilter" style="width:auto" aria-label="Filter by growth stage"><option value="">All Stages</option>${ALL_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
     </div>
     <div id="plantsList"><p class="loading-text">Loading...</p></div>`;
 
@@ -2230,6 +2264,30 @@ function renderPlantsGrid(plants, el, showGarden = false) {
   });
 }
 
+// Show the right fields for the plant kind. Houseplants are bought, not
+// grown from seed: "Seeded Date" becomes "Acquired Date", the stage list
+// switches to the houseplant lifecycle, and seed/hydro fields are hidden.
+function applyPlantTypeFields(plantType) {
+  const isHouseplant = plantType === 'houseplant';
+  const seededLabel = document.getElementById('pf-seeded-label');
+  if (seededLabel) seededLabel.textContent = isHouseplant ? 'Acquired Date' : 'Seeded Date';
+  const stageSelect = document.getElementById('pf-stage');
+  if (stageSelect) {
+    const current = stageSelect.value;
+    const stages = stagesForType(plantType);
+    stageSelect.innerHTML = stages.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('');
+    stageSelect.value = stages.includes(current) ? current : stages[0];
+  }
+  const seedRow = document.getElementById('pf-seed-row');
+  if (seedRow) seedRow.hidden = isHouseplant;
+  const hydroRow = document.getElementById('pf-hydro-row');
+  if (hydroRow) hydroRow.hidden = isHouseplant;
+  const harvestRow = document.getElementById('pf-harvest-row');
+  if (harvestRow) harvestRow.hidden = isHouseplant;
+  const yieldField = document.getElementById('pf-yield-field');
+  if (yieldField) yieldField.hidden = isHouseplant;
+}
+
 function showAddPlantModal(gardenId) {
   const showGardenPicker = !gardenId && state.gardens.length > 0;
   showModal(`<h2 id="modalTitle">Add New Plant</h2><form id="plantForm">
@@ -2239,10 +2297,10 @@ function showAddPlantModal(gardenId) {
     <div class="form-hint" id="qtyHint" hidden style="margin-top:-12px;margin-bottom:12px">Plants will be named "Name #1", "Name #2", etc.</div>
     <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type <span class="required" aria-hidden="true">*</span></label><select class="form-input" id="pf-type" name="plant_type" required aria-required="true">${PLANT_TYPES.map(t => `<option value="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
       <div class="form-group"><label for="pf-species">Species <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="pf-species" name="species" placeholder="e.g., Cherry Tomato" required aria-required="true"></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-seeded">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+    <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${todayLocal()}"></div>
       <div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${GROWTH_STAGES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div></div>
-    ${state.seeds.length ? `<div class="form-group"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}">${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
-    <div class="form-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0"></div>
+    ${state.seeds.length ? `<div class="form-group" id="pf-seed-row"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}">${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
+    <div class="form-row" id="pf-hydro-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" placeholder="6.0"></div>
       <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" placeholder="800"></div></div>
     <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2" placeholder="Any notes..."></textarea></div>
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelPlant">Cancel</button><button type="submit" class="btn btn-primary">Add Plant</button></div></form>`);
@@ -2250,6 +2308,8 @@ function showAddPlantModal(gardenId) {
   document.getElementById('pf-qty').addEventListener('input', e => {
     document.getElementById('qtyHint').hidden = parseInt(e.target.value) <= 1;
   });
+  document.getElementById('pf-type').addEventListener('change', e => applyPlantTypeFields(e.target.value));
+  applyPlantTypeFields(document.getElementById('pf-type').value);
   document.getElementById('plantForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -2258,10 +2318,10 @@ function showAddPlantModal(gardenId) {
     const baseName = fd.get('name');
     const plantData = {
       plant_type: fd.get('plant_type'), species: fd.get('species'),
-      seeded_date: fd.get('seeded_date') ? new Date(fd.get('seeded_date')).toISOString() : null,
+      seeded_date: fd.get('seeded_date') || null,
       current_stage: fd.get('current_stage'), initial_ph: fd.get('initial_ph') ? parseFloat(fd.get('initial_ph')) : null,
       initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null,
-      seed_id: fd.get('seed_id') || null
+      seed_id: fd.get('plant_type') === 'houseplant' ? null : (fd.get('seed_id') || null)
     };
     const promises = [];
     for (let i = 0; i < qty; i++) {
@@ -2294,11 +2354,12 @@ function showPlantDetail(id) {
       </div>
       <div class="detail-grid">
         <div><div class="detail-label">Species</div><div class="detail-value">${esc(plant.species)}</div></div>
-        <div><div class="detail-label">Seeded</div><div class="detail-value">${formatDate(plant.seeded_date)}</div></div>
+        <div><div class="detail-label">${plant.plant_type === 'houseplant' ? 'Acquired' : 'Seeded'}</div><div class="detail-value">${formatDate(plant.seeded_date)}</div></div>
         <div><div class="detail-label">Transplanted</div><div class="detail-value">${formatDate(plant.transplanted_date)}</div></div>
+        ${plant.plant_type === 'houseplant' ? '' : `
         <div><div class="detail-label">Initial pH</div><div class="detail-value">${plant.initial_ph ?? '--'}</div></div>
         <div><div class="detail-label">Initial PPM</div><div class="detail-value">${plant.initial_ppm ?? '--'}</div></div>
-        <div><div class="detail-label">Harvest Date</div><div class="detail-value">${formatDate(plant.harvest_date)}</div></div>
+        <div><div class="detail-label">Harvest Date</div><div class="detail-value">${formatDate(plant.harvest_date)}</div></div>`}
         ${plant.yield_amount ? `<div><div class="detail-label">Yield</div><div class="detail-value">${plant.yield_amount}</div></div>` : ''}
       </div>
       ${plant.notes ? `<div class="detail-notes">${esc(plant.notes)}</div>` : ''}
@@ -2329,38 +2390,40 @@ function showPlantDetail(id) {
 }
 
 function showEditPlantModal(plant) {
-  const seededDate = plant.seeded_date ? new Date(plant.seeded_date).toISOString().split('T')[0] : '';
-  const transplantedDate = plant.transplanted_date ? new Date(plant.transplanted_date).toISOString().split('T')[0] : '';
-  const harvestDate = plant.harvest_date ? new Date(plant.harvest_date).toISOString().split('T')[0] : '';
+  const seededDate = toDateInputValue(plant.seeded_date);
+  const transplantedDate = toDateInputValue(plant.transplanted_date);
+  const harvestDate = toDateInputValue(plant.harvest_date);
+  const isHouseplant = plant.plant_type === 'houseplant';
 
   showModal(`<h2 id="modalTitle">Edit Plant</h2><form id="plantForm">
     <div class="form-group"><label for="pf-name">Plant Name</label><input class="form-input" id="pf-name" name="name" value="${esc(plant.name)}" required></div>
     <div class="form-row"><div class="form-group"><label for="pf-type">Plant Type</label><select class="form-input" id="pf-type" name="plant_type" required>${PLANT_TYPES.map(t => `<option value="${t}" ${plant.plant_type === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
       <div class="form-group"><label for="pf-species">Species</label><input class="form-input" id="pf-species" name="species" value="${esc(plant.species)}" required></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-seeded">Seeded Date</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${seededDate}"></div>
+    <div class="form-row"><div class="form-group"><label for="pf-seeded" id="pf-seeded-label">${isHouseplant ? 'Acquired Date' : 'Seeded Date'}</label><input class="form-input" id="pf-seeded" name="seeded_date" type="date" value="${seededDate}"></div>
       <div class="form-group"><label for="pf-transplanted">Transplanted Date</label><input class="form-input" id="pf-transplanted" name="transplanted_date" type="date" value="${transplantedDate}"></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${GROWTH_STAGES.map(s => `<option value="${s}" ${plant.current_stage === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div>
-      <div class="form-group"><label for="pf-harvest">Harvest Date</label><input class="form-input" id="pf-harvest" name="harvest_date" type="date" value="${harvestDate}"></div></div>
-    <div class="form-row"><div class="form-group"><label for="pf-yield">Yield Amount</label><input class="form-input" id="pf-yield" name="yield_amount" type="number" step="0.1" value="${plant.yield_amount || ''}"></div>
+    <div class="form-row"><div class="form-group"><label for="pf-stage">Growth Stage</label><select class="form-input" id="pf-stage" name="current_stage">${stagesForType(plant.plant_type).map(s => `<option value="${s}" ${plant.current_stage === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select></div>
+      <div class="form-group" id="pf-harvest-row" ${isHouseplant ? 'hidden' : ''}><label for="pf-harvest">Harvest Date</label><input class="form-input" id="pf-harvest" name="harvest_date" type="date" value="${harvestDate}"></div></div>
+    <div class="form-row"><div class="form-group" id="pf-yield-field" ${isHouseplant ? 'hidden' : ''}><label for="pf-yield">Yield Amount</label><input class="form-input" id="pf-yield" name="yield_amount" type="number" step="0.1" value="${plant.yield_amount || ''}"></div>
       <div class="form-group"><label class="checkbox-label" style="margin-top:28px"><input type="checkbox" name="is_active" ${plant.is_active ? 'checked' : ''}> Active</label></div></div>
-    ${state.seeds.length ? `<div class="form-group"><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}" ${plant.seed_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
-    <div class="form-row"><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" value="${plant.initial_ph || ''}"></div>
+    ${state.seeds.length ? `<div class="form-group" id="pf-seed-row" ${isHouseplant ? 'hidden' : ''}><label for="pf-seed">Seed Source</label><select class="form-input" id="pf-seed" name="seed_id"><option value="">None</option>${state.seeds.map(s => `<option value="${s.id}" ${plant.seed_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.variety ? ' — ' + esc(s.variety) : ''}</option>`).join('')}</select></div>` : ''}
+    <div class="form-row" id="pf-hydro-row" ${isHouseplant ? 'hidden' : ''}><div class="form-group"><label for="pf-ph">Initial pH</label><input class="form-input" id="pf-ph" name="initial_ph" type="number" step="0.1" value="${plant.initial_ph || ''}"></div>
       <div class="form-group"><label for="pf-ppm">Initial PPM</label><input class="form-input" id="pf-ppm" name="initial_ppm" type="number" value="${plant.initial_ppm || ''}"></div></div>
     <div class="form-group"><label for="pf-notes">Notes</label><textarea class="form-input" id="pf-notes" name="notes" rows="2">${esc(plant.notes || '')}</textarea></div>
     <div class="modal-actions"><button type="button" class="btn btn-secondary" id="cancelPlant">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div></form>`);
   document.getElementById('cancelPlant').addEventListener('click', closeModal);
+  document.getElementById('pf-type').addEventListener('change', e => applyPlantTypeFields(e.target.value));
   document.getElementById('plantForm').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     await API.updatePlant(plant.id, {
       name: fd.get('name'), plant_type: fd.get('plant_type'), species: fd.get('species'),
-      seeded_date: fd.get('seeded_date') ? new Date(fd.get('seeded_date')).toISOString() : null,
-      transplanted_date: fd.get('transplanted_date') ? new Date(fd.get('transplanted_date')).toISOString() : null,
-      current_stage: fd.get('current_stage'), harvest_date: fd.get('harvest_date') ? new Date(fd.get('harvest_date')).toISOString() : null,
+      seeded_date: fd.get('seeded_date') || null,
+      transplanted_date: fd.get('transplanted_date') || null,
+      current_stage: fd.get('current_stage'), harvest_date: fd.get('harvest_date') || null,
       yield_amount: fd.get('yield_amount') ? parseFloat(fd.get('yield_amount')) : null,
       is_active: !!fd.get('is_active'), initial_ph: fd.get('initial_ph') ? parseFloat(fd.get('initial_ph')) : null,
       initial_ppm: fd.get('initial_ppm') ? parseInt(fd.get('initial_ppm')) : null, notes: fd.get('notes') || null,
-      seed_id: fd.get('seed_id') || null
+      seed_id: fd.get('plant_type') === 'houseplant' ? null : (fd.get('seed_id') || null)
     });
     closeModal();
     toast('Plant updated');
@@ -2551,7 +2614,7 @@ function showAddSeedModal() {
     const fd = new FormData(e.target);
     await API.createSeed({
       name: fd.get('name'), variety: fd.get('variety') || null, supplier: fd.get('supplier') || null,
-      purchase_date: fd.get('purchase_date') ? new Date(fd.get('purchase_date')).toISOString() : null,
+      purchase_date: fd.get('purchase_date') || null,
       purchase_price: fd.get('purchase_price') ? parseFloat(fd.get('purchase_price')) : null,
       quantity: parseInt(fd.get('quantity')) || 1, quantity_unit: fd.get('quantity_unit'),
       expected_germination_rate: fd.get('expected_germination_rate') ? parseInt(fd.get('expected_germination_rate')) : null,
@@ -2566,7 +2629,7 @@ function showAddSeedModal() {
 }
 
 function showEditSeedModal(seed) {
-  const purchaseDate = seed.purchase_date ? new Date(seed.purchase_date).toISOString().split('T')[0] : '';
+  const purchaseDate = toDateInputValue(seed.purchase_date);
   const suppliers = getUniqueSuppliers();
   showModal(`<h2 id="modalTitle">Edit Seed</h2><form id="seedForm">
     <div class="form-group"><label for="sf-name">Name <span class="required" aria-hidden="true">*</span></label><input class="form-input" id="sf-name" name="name" value="${esc(seed.name)}" required aria-required="true"></div>
@@ -2594,7 +2657,7 @@ function showEditSeedModal(seed) {
     const fd = new FormData(e.target);
     await API.updateSeed(seed.id, {
       name: fd.get('name'), variety: fd.get('variety') || null, supplier: fd.get('supplier') || null,
-      purchase_date: fd.get('purchase_date') ? new Date(fd.get('purchase_date')).toISOString() : null,
+      purchase_date: fd.get('purchase_date') || null,
       purchase_price: fd.get('purchase_price') ? parseFloat(fd.get('purchase_price')) : null,
       quantity: parseInt(fd.get('quantity')) || 1, quantity_unit: fd.get('quantity_unit'),
       expected_germination_rate: fd.get('expected_germination_rate') ? parseInt(fd.get('expected_germination_rate')) : null,
