@@ -446,9 +446,13 @@ input, select, textarea { font: inherit; }
 
 /* === Forms === */
 .form-group { margin-bottom: 16px; }
-.form-group label {
+.form-group > label {
   display: block; font-size: 0.85rem; font-weight: 500;
   color: var(--text-secondary); margin-bottom: 6px;
+}
+.form-group > label.checkbox-label {
+  display: inline-flex; font-size: 0.9rem; font-weight: 400;
+  color: var(--text); margin-bottom: 0; min-height: 36px;
 }
 .form-input {
   width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
@@ -505,8 +509,32 @@ select.form-input {
 .tag-select-option:hover, .tag-select-option.highlighted { background: var(--bg-hover); }
 .tag-select-empty { padding: 8px 12px; font-size: 0.85rem; color: var(--text-tertiary); }
 
-.checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
-.checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem; min-height: 44px; }
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 2px 0;
+}
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 0;
+  line-height: 1.4;
+  user-select: none;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
 
 /* === Quick-Add Dropdown === */
 .quick-add-wrap { position: relative; }
@@ -534,7 +562,7 @@ select.form-input {
   max-width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 .modal h2 { font-size: 1.25rem; margin-bottom: 20px; }
-.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
 /* === Drawer (slide-out panel) === */
 .drawer-backdrop {
