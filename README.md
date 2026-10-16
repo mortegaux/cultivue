@@ -2,6 +2,44 @@
 
 A garden management web app supporting hydroponic, soil, container, and aquaponics gardens.
 
+## Screenshots
+
+![Dashboard](docs/screenshots/01-dashboard.png)
+
+*Dashboard — garden health, upcoming tasks, and recent activity.*
+
+![Gardens](docs/screenshots/02-gardens.png)
+
+*Gardens list.*
+
+![Garden detail](docs/screenshots/03-garden-detail.png)
+
+*Garden detail — DWC Lettuce Raft with plants, logs, and tasks.*
+
+![Plants](docs/screenshots/04-plants.png)
+
+*All Plants list across growth stages.*
+
+![Houseplant detail](docs/screenshots/05-plant-detail.png)
+
+*Houseplant detail — Monstera Deliciosa with its own lifecycle (acquired → acclimating → established → thriving), Acquired date, and no seed/sensor/harvest fields.*
+
+![Tasks](docs/screenshots/06-tasks.png)
+
+*Tasks with priorities, overdue badges, and recurring schedules.*
+
+![Dashboard on mobile](docs/screenshots/07-dashboard-mobile.png)
+
+*Dashboard on mobile.*
+
+![Dashboard in dark mode](docs/screenshots/08-dashboard-dark.png)
+
+*Dashboard in dark mode.*
+
+![Houseplant form](docs/screenshots/09-houseplant-form.png)
+
+*Add New Plant form with Houseplant selected — the form adapts: Acquired Date instead of Seeded Date, the houseplant stage list, and seed/sensor/harvest fields hidden.*
+
 ## Features
 
 - **Multi-garden management** with 15+ garden subtypes across 4 categories, featuring collapsible accordion panels and bulk category controls
