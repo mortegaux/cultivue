@@ -1,3 +1,17 @@
 node_modules
 data
 .git
+.gitignore
+.env
+.env.*
+!.env.example
+.claude
+.vscode
+.idea
+*.log
+coverage
+.nyc_output
+.DS_Store
+docs/screenshots
+README.md
+LICENSE

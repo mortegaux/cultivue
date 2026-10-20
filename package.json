@@ -1,8 +1,30 @@
 {
   "name": "cultivue",
   "version": "2.0.0",
-  "description": "Garden management web app",
+  "description": "Self-hosted garden and hydroponics management platform",
   "main": "server/index.js",
+  "author": "mortegaux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mortegaux/cultivue.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mortegaux/cultivue/issues"
+  },
+  "homepage": "https://github.com/mortegaux/cultivue#readme",
+  "keywords": [
+    "gardening",
+    "hydroponics",
+    "aquaponics",
+    "homelab",
+    "self-hosted",
+    "iot",
+    "sensors",
+    "plant-tracker",
+    "sqlite",
+    "docker"
+  ],
   "scripts": {
     "start": "node server/index.js",
     "test": "mocha tests/auth.test.js tests/api.test.js tests/migrations.test.js tests/calendar-plant.test.js tests/stage-capitalization.test.js tests/garden-types-accordion.test.js tests/recurring-tasks.test.js --timeout 10000 --exit",
