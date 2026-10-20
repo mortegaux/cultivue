@@ -24,7 +24,7 @@ describe('Migrations', function () {
 
     // Verify tables exist
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
-    const required = ['users', 'sessions', 'gardens', 'log_entries', 'tasks', 'plants', 'audit_log',
+    const required = ['users', 'sessions', 'user', 'session', 'gardens', 'log_entries', 'tasks', 'plants', 'audit_log',
       'app_settings', 'garden_types', 'metric_definitions', 'garden_type_metrics',
       'devices', 'device_api_keys', 'sensor_readings', 'webhooks', 'webhook_logs'];
     for (const t of required) {

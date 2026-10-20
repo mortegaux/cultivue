@@ -2,6 +2,61 @@
 
 exports.up = function (db) {
   db.exec(`
+    -- Better Auth tables
+    CREATE TABLE IF NOT EXISTS "user" (
+      "id" TEXT PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "email" TEXT NOT NULL UNIQUE,
+      "emailVerified" INTEGER NOT NULL DEFAULT 0,
+      "image" TEXT,
+      "createdAt" TEXT NOT NULL,
+      "updatedAt" TEXT NOT NULL,
+      "username" TEXT UNIQUE,
+      "displayUsername" TEXT,
+      "role" TEXT DEFAULT 'user',
+      "failed_attempts" INTEGER DEFAULT 0,
+      "locked_until" TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS "session" (
+      "id" TEXT PRIMARY KEY,
+      "expiresAt" TEXT NOT NULL,
+      "token" TEXT NOT NULL UNIQUE,
+      "createdAt" TEXT NOT NULL,
+      "updatedAt" TEXT NOT NULL,
+      "ipAddress" TEXT,
+      "userAgent" TEXT,
+      "userId" TEXT NOT NULL,
+      FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS "account" (
+      "id" TEXT PRIMARY KEY,
+      "accountId" TEXT NOT NULL,
+      "providerId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "accessToken" TEXT,
+      "refreshToken" TEXT,
+      "idToken" TEXT,
+      "accessTokenExpiresAt" TEXT,
+      "refreshTokenExpiresAt" TEXT,
+      "scope" TEXT,
+      "password" TEXT,
+      "createdAt" TEXT NOT NULL,
+      "updatedAt" TEXT NOT NULL,
+      FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS "verification" (
+      "id" TEXT PRIMARY KEY,
+      "identifier" TEXT NOT NULL,
+      "value" TEXT NOT NULL,
+      "expiresAt" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL,
+      "updatedAt" TEXT NOT NULL
+    );
+
+    -- CultiVue legacy / expected tables
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -10,7 +65,9 @@ exports.up = function (db) {
       is_admin INTEGER NOT NULL DEFAULT 0,
       must_change_password INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
-      is_active INTEGER NOT NULL DEFAULT 1
+      is_active INTEGER NOT NULL DEFAULT 1,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -92,6 +149,7 @@ exports.up = function (db) {
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_session_token ON "session"(token);
     CREATE INDEX IF NOT EXISTS idx_log_entries_garden ON log_entries(garden_id);
     CREATE INDEX IF NOT EXISTS idx_log_entries_timestamp ON log_entries(timestamp);
     CREATE INDEX IF NOT EXISTS idx_tasks_garden ON tasks(garden_id);

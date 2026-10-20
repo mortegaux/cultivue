@@ -82,7 +82,7 @@ Built with a fast, zero-build vanilla JavaScript frontend and an efficient Node.
 - **WCAG 2.1 AA Compliant:** Comprehensive keyboard navigation, focus trapping, screen-reader landmarks, and high contrast ratios.
 
 ### 🔒 Enterprise-Grade Security
-- Multi-user authentication with bcrypt password hashing and session management.
+- Multi-user authentication powered by **Better Auth** with secure password hashing and session management.
 - Granular user administration, audit logging, and account lockout protections.
 - Hardened with Helmet CSP headers, CSRF/secure cookie flags, and strict input validation.
 
@@ -194,7 +194,8 @@ CultiVue can be configured via environment variables or a `.env` file:
 | `PORT` | `3000` | Port for the HTTP Express server. |
 | `DB_PATH` | `data/cultivue.db` | Relative or absolute path to the SQLite database file. |
 | `NODE_ENV` | `development` | Setting to `production` enables secure cookies, strict CSP, and optimized logging. |
-| `SESSION_SECRET` | *(auto-generated)* | Key used to sign session cookies (recommended in production). |
+| `BETTER_AUTH_SECRET` | *(auto-generated)* | Secret key used by Better Auth for signing sessions and tokens. |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | Base URL for Better Auth routing. |
 
 ---
 
@@ -261,7 +262,7 @@ cultivue/
 
 - **Backend:** Node.js, Express, SQLite via [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) (synchronous execution, WAL mode).
 - **Frontend:** Vanilla JavaScript, CSS Custom Properties, [Chart.js](https://www.chartjs.org/) for telemetry visualization.
-- **Security:** [Helmet](https://helmetjs.github.io/) CSP, bcrypt password hashing, secure session cookies, HMAC token hashing, rate limiting.
+- **Security:** [Better Auth](https://better-auth.com/) authentication, [Helmet](https://helmetjs.github.io/) CSP, password hashing, secure session cookies, HMAC token hashing, rate limiting.
 
 ---
 

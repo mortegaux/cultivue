@@ -15,7 +15,7 @@ let state = {
   logsChart: null,
 };
 
-const SECONDARY_PAGES = new Set(['calendar', 'plants', 'seeds', 'locations', 'settings']);
+const SECONDARY_PAGES = new Set(['calendar', 'plants', 'seeds', 'locations', 'devices', 'settings']);
 
 // === Screen reader announcer ===
 function announce(msg) {
@@ -511,6 +511,7 @@ function renderPage() {
     case 'plants': renderPlants(main); break;
     case 'seeds': renderSeeds(main); break;
     case 'calendar': renderCalendarPage(main); break;
+    case 'devices': renderDevicesPage(main); break;
     case 'settings': renderSettings(main); break;
     case 'garden-detail': {
       const garden = getSelectedGarden();
@@ -1614,6 +1615,170 @@ async function showLocationDetail(locationId) {
     const el = document.getElementById('drawerLocationGardens');
     if (el) el.innerHTML = '<p class="empty-text">Failed to load gardens.</p>';
   }
+}
+
+// ============================================
+// === DEVICES
+// ============================================
+async function renderDevicesPage(main) {
+  main.innerHTML = `
+    <header class="page-header"><div><h1>IoT Devices & Sensors</h1></div>
+      <button class="btn btn-primary" type="button" id="addDeviceBtn">+ Register Device</button>
+    </header>
+    <div id="devicesList"><p class="loading-text">Loading...</p></div>
+  `;
+  document.getElementById('addDeviceBtn').addEventListener('click', () => showDeviceModal());
+  try {
+    const devices = await API.getDevices();
+    const el = document.getElementById('devicesList');
+    if (!devices.length) {
+      el.innerHTML = `<div class="empty-state"><h3>No devices registered</h3><p>Register microcontrollers or sensors (ESP32, Arduino) to ingest telemetry automatically.</p></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="card" style="padding:0">${devices.map(d => `
+      <div class="garden-row" style="cursor:pointer" data-device-id="${d.id}">
+        <span class="material-symbols-outlined garden-row-icon" style="color:${d.is_online ? 'var(--emerald-600)' : 'var(--text-tertiary)'}">sensors</span>
+        <div style="flex:1; min-width:0">
+          <div style="font-weight:600">${esc(d.name)}</div>
+          <div class="secondary-text" style="font-size:0.8rem">${esc(d.description || d.device_type)}</div>
+        </div>
+        <span class="garden-row-badges">
+          <span class="badge ${d.is_online ? 'badge-emerald' : 'badge-amber'}">${d.is_online ? 'Online' : 'Offline'}</span>
+          <span class="badge badge-blue">${esc(d.device_type)}</span>
+        </span>
+        <button class="btn btn-secondary btn-sm" type="button" data-keys-id="${d.id}" style="margin-left:12px">API Keys</button>
+      </div>
+    `).join('')}</div>`;
+
+    el.querySelectorAll('[data-keys-id]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showDeviceKeysModal(btn.dataset.keysId);
+      });
+    });
+  } catch (err) {
+    document.getElementById('devicesList').innerHTML = `<p class="empty-text">Failed to load devices: ${esc(err.message)}</p>`;
+  }
+}
+
+async function showDeviceModal() {
+  showModal(`
+    <h2 id="modalTitle">Register IoT Device</h2>
+    <form id="deviceForm">
+      <div class="form-group">
+        <label for="deviceName">Device Name *</label>
+        <input type="text" id="deviceName" class="form-input" required placeholder="e.g., DWC Reservoir Node">
+      </div>
+      <div class="form-group">
+        <label for="deviceType">Device Type</label>
+        <select id="deviceType" class="form-select">
+          <option value="sensor">Sensor Node</option>
+          <option value="controller">Controller</option>
+          <option value="gateway">Gateway</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="deviceGarden">Associated Garden (Optional)</label>
+        <select id="deviceGarden" class="form-select">
+          <option value="">-- None --</option>
+          ${state.gardens.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="deviceDesc">Description</label>
+        <textarea id="deviceDesc" class="form-textarea" placeholder="Location, microcontroller model, or notes"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="cancelDevice">Cancel</button>
+        <button type="submit" class="btn btn-primary">Register</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('cancelDevice').addEventListener('click', closeModal);
+  document.getElementById('deviceForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('deviceName').value.trim(),
+      device_type: document.getElementById('deviceType').value,
+      garden_id: document.getElementById('deviceGarden').value || null,
+      description: document.getElementById('deviceDesc').value.trim() || null,
+    };
+    try {
+      await API.createDevice(data);
+      closeModal();
+      toast('Device registered successfully');
+      renderPage();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+async function showDeviceKeysModal(deviceId) {
+  let keys = [];
+  try {
+    keys = await API.getDeviceKeys(deviceId);
+  } catch { /* ok */ }
+
+  showModal(`
+    <h2 id="modalTitle">API Keys for Device</h2>
+    <p class="secondary-text" style="margin-bottom:16px">API keys authenticate telemetry data submitted via HTTP POST to <code>/api/sensor/readings</code>.</p>
+    <div id="keysList" style="margin-bottom:16px">
+      ${keys.length ? keys.map(k => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color)">
+          <div>
+            <strong>${esc(k.label)}</strong> (<code>${esc(k.key_prefix)}...</code>)
+            <div style="font-size:0.75rem; color:var(--text-tertiary)">Created: ${new Date(k.created_at).toLocaleDateString()}</div>
+          </div>
+          <button class="btn btn-danger btn-sm" type="button" data-delete-key="${k.id}">Revoke</button>
+        </div>
+      `).join('') : '<p class="secondary-text">No API keys created yet.</p>'}
+    </div>
+    <div class="form-group">
+      <label for="keyLabel">Key Label</label>
+      <input type="text" id="keyLabel" class="form-input" value="Default Key" placeholder="e.g., ESP32 Sensor">
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" id="closeKeysModal">Close</button>
+      <button type="button" class="btn btn-primary" id="generateKeyBtn">+ Generate New Key</button>
+    </div>
+  `);
+
+  document.getElementById('closeKeysModal').addEventListener('click', closeModal);
+  document.getElementById('generateKeyBtn').addEventListener('click', async () => {
+    const label = document.getElementById('keyLabel').value.trim() || 'Default Key';
+    try {
+      const res = await API.createDeviceKey(deviceId, label);
+      closeModal();
+      showModal(`
+        <h2 id="modalTitle">API Key Generated</h2>
+        <p class="secondary-text">Copy this API key now. You will not be able to view it again!</p>
+        <div class="form-group">
+          <input type="text" readonly class="form-input" value="${esc(res.raw_key)}" onclick="this.select()">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" onclick="closeModal(); showDeviceKeysModal('${deviceId}')">Done</button>
+        </div>
+      `);
+      toast('API key generated');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  const modalEl = document.getElementById('modal');
+  modalEl.querySelectorAll('[data-delete-key]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Revoke this API key? Devices using this key will immediately lose access.')) return;
+      try {
+        await API.deleteDeviceKey(deviceId, btn.dataset.deleteKey);
+        toast('API key revoked');
+        showDeviceKeysModal(deviceId);
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+  });
 }
 
 // ============================================

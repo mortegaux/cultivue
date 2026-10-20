@@ -1,0 +1,32 @@
+esphome:
+  name: cultivue-sensor-node
+  friendly_name: CultiVue Sensor Node
+
+esp32:
+  board: esp32dev
+
+wifi:
+  ssid: "YourWiFiSSID"
+  password: "YourWiFiPassword"
+
+logger:
+
+api:
+
+ota:
+
+# Example sensor integration posting to CultiVue HTTP API
+http_request:
+  manufacturer: "CultiVue"
+  model: "ESP32 Sensor Node"
+
+interval:
+  - interval: 60s
+    then:
+      - http_request.post:
+          url: "http://cultivue.local:3000/api/sensor/readings"
+          headers:
+            Content-Type: "application/json"
+            X-API-Key: "cv_dev_your_api_key_here"
+          body: !lambda |-
+            return "{ \"readings\": [ { \"metric_id\": \"ph\", \"value\": 6.2 }, { \"metric_id\": \"water_temp\", \"value\": 21.5 } ] }";

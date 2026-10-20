@@ -49,12 +49,12 @@ exports.up = function (db) {
     db.exec(`ALTER TABLE gardens ADD COLUMN garden_type_id TEXT`);
   }
 
-  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  const userCols = db.prepare("PRAGMA table_info(user)").all().map(c => c.name);
   if (!userCols.includes('failed_attempts')) {
-    db.exec(`ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`ALTER TABLE "user" ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`);
   }
   if (!userCols.includes('locked_until')) {
-    db.exec(`ALTER TABLE users ADD COLUMN locked_until TEXT`);
+    db.exec(`ALTER TABLE "user" ADD COLUMN locked_until TEXT`);
   }
 
   // Add metric_data JSON column to log_entries

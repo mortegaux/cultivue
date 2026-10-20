@@ -11,16 +11,25 @@ function hashApiKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+function isOnline(lastSeenAt) {
+  if (!lastSeenAt) return false;
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  return diffMs < 2 * 60 * 60 * 1000; // 2 hours
+}
+
 // === Devices ===
 
 function listDevices() {
   return db.prepare('SELECT * FROM devices ORDER BY created_at DESC').all()
-    .map(d => ({ ...d, is_active: !!d.is_active }));
+    .map(d => ({ ...d, is_active: !!d.is_active, is_online: isOnline(d.last_seen_at) }));
 }
 
 function getDevice(id) {
   const d = db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
-  if (d) d.is_active = !!d.is_active;
+  if (d) {
+    d.is_active = !!d.is_active;
+    d.is_online = isOnline(d.last_seen_at);
+  }
   return d;
 }
 
@@ -29,7 +38,7 @@ function createDevice(name, gardenId, deviceType, description) {
   const now = new Date().toISOString();
   db.prepare('INSERT INTO devices (id, name, garden_id, device_type, description, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)')
     .run(id, name, gardenId || null, deviceType || 'sensor', description || null, now, now);
-  return { id, name, garden_id: gardenId, device_type: deviceType || 'sensor', description, is_active: true, created_at: now, updated_at: now };
+  return { id, name, garden_id: gardenId, device_type: deviceType || 'sensor', description, is_active: true, is_online: false, created_at: now, updated_at: now };
 }
 
 function updateDevice(id, name, gardenId, deviceType, description, isActive) {
@@ -92,6 +101,20 @@ function createSensorReading(deviceId, metricId, value, recordedAt) {
   const now = new Date().toISOString();
   db.prepare('INSERT INTO sensor_readings (id, device_id, metric_id, value, recorded_at, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id, deviceId, metricId, value, recordedAt || now, now);
+
+  // Check metric thresholds & trigger webhooks
+  try {
+    const metric = db.prepare('SELECT ideal_min, ideal_max FROM metric_definitions WHERE id = ?').get(metricId);
+    if (metric && (metric.ideal_min !== null || metric.ideal_max !== null)) {
+      if ((metric.ideal_min !== null && value < metric.ideal_min) || (metric.ideal_max !== null && value > metric.ideal_max)) {
+        const { fireWebhook } = require('./webhooks');
+        fireWebhook('metric_alert', { device_id: deviceId, metric_id: metricId, value, ideal_min: metric.ideal_min, ideal_max: metric.ideal_max, timestamp: now });
+      }
+    }
+    const { fireWebhook } = require('./webhooks');
+    fireWebhook('sensor_reading', { device_id: deviceId, metric_id: metricId, value, recorded_at: recordedAt || now });
+  } catch { /* webhook dispatch failure should not block ingestion */ }
+
   return { id, device_id: deviceId, metric_id: metricId, value, recorded_at: recordedAt || now };
 }
 
