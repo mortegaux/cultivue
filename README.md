@@ -129,7 +129,7 @@ The fastest and cleanest way to run CultiVue is using Docker:
    ```yaml
    services:
      cultivue:
-       image: node:20-alpine
+       image: node:22-alpine
        container_name: cultivue
        restart: unless-stopped
        working_dir: /app

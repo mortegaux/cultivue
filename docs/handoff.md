@@ -80,7 +80,7 @@ docs/
   handoff.md          — This file
   transcript.md       — Session work log
 docker-compose.yml    — Docker deployment config
-Dockerfile            — Node 20 Alpine image
+Dockerfile            — Node 22 Alpine image
 ```
 
 ## CSS Breakpoints
